@@ -214,7 +214,8 @@ def test_backfill_aborts_cleanly_when_db_connection_is_lost(
 ) -> None:
     from mister_assistant.store.db import connect
 
-    conninfo = db.info.dsn
+    # `db.info.dsn` omite la contraseña: se parte de la URI de administración.
+    conninfo = psycopg.conninfo.make_conninfo(pg_admin_uri, dbname=db.info.dbname)
     job_conn = connect(conninfo)
     fake = FakeMister()
 
