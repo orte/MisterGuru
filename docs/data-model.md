@@ -1,6 +1,7 @@
 # Modelo de datos (Fase 1)
 
-Esquema: `supabase/migrations/20261008120000_initial.sql`. Postgres 16 (Supabase).
+Esquema: `supabase/migrations/` (Fase 1: `20261008120000_initial.sql`; Fase 2:
+`20261009090000_external_sources.sql`). Postgres 17 en Supabase.
 
 ## Principios
 
@@ -35,6 +36,12 @@ Esquema: `supabase/migrations/20261008120000_initial.sql`. Postgres 16 (Supabase
 | `market_snapshot` | (player, día) | `/market` | solo jugadores en venta ese día; `seller_manager_id` null = el juego |
 | `league_events` | event_key | `/ajax/feed` | `transfer:<id_transfer>` y bajadas de cláusula |
 | `player_gameweek` | (player, gameweek) | `/ajax/player-gameweek` + eventos de `/ajax/sw/gameweek` | notas por fuente, puntos por fuente, Mixta, final, goles, tarjetas, minutos |
+| `match_stats` | (player, fixture) | `stats` de `/ajax/player-gameweek` (SofaScore) | xG, xA, tiros, tiros a puerta, pases clave, toques, minutos |
+| `lineup_forecast` | (source, external_id, gameweek, captured_at) | `preview` de Mister, fichas de Fútbol Fantasy | append-only: una fila por jugador y captura; P(titular), rol, código de lesión |
+| `odds` | (event, captured_at, market, outcome, point) | The Odds API | consenso sin margen; `fixture_id` emparejado |
+| `team_xref` | (team, source) | emparejado | equipo de Mister ↔ id externo |
+| `player_xref` | (player, source) | emparejado | jugador de Mister ↔ id externo, confianza, método, `verified` |
+| `identity_review` | (source, external_id) | emparejado | cola de dudosos con candidatos; `pending`/`resolved`/`ignored` |
 
 ## Robustez de los jobs
 
@@ -47,6 +54,11 @@ Esquema: `supabase/migrations/20261008120000_initial.sql`. Postgres 16 (Supabase
 - El backfill es reanudable: salta los `player_gameweek` ya guardados. Procesa
   jornadas `finished` y `ongoing`, pero solo los partidos ya puntuados; un
   aplazado se recoge en la ejecución diaria cuando se juegue.
+
+Las filas de fuentes externas se guardan con su id externo aunque aún no estén
+emparejadas: para unirlas a un jugador de Mister se pasa por `player_xref`
+(`lineup_forecast.external_id = player_xref.external_id` y misma `source`). Para
+`source = 'mister'`, `external_id` es el id de Mister.
 
 ## Huecos conocidos
 

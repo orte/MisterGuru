@@ -40,9 +40,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _calibrate(settings, args.target)
             case "notify":
                 return _notify(settings, " ".join(args.text))
+            case "capture-lineups":
+                return _capture_lineups(settings, skip_mister=args.skip_mister)
+            case "capture-odds":
+                return _capture_odds(settings)
+            case "derive-match-stats":
+                return _derive_match_stats(settings)
+            case "identity":
+                return _identity(settings, args)
     except ConfigError as exc:
         print(f"✗ Configuración: {exc}", file=sys.stderr)
         return EXIT_CONFIG
+    except ValueError as exc:  # p. ej. un CSV de revisión con columnas que faltan
+        print(f"✗ {exc}", file=sys.stderr)
+        return EXIT_FAILED
     return EXIT_FAILED
 
 
@@ -61,6 +72,26 @@ def _parser() -> argparse.ArgumentParser:
     cal.add_argument("--target", choices=["points_mix", "points_final"], default="points_mix")
     note = sub.add_parser("notify", help="Envía un mensaje por Telegram")
     note.add_argument("text", nargs="+")
+    lin = sub.add_parser("capture-lineups", help="Alineaciones probables (Mister + Fútbol Fantasy)")
+    lin.add_argument("--skip-mister", action="store_true", help="Solo Fútbol Fantasy")
+    sub.add_parser("capture-odds", help="Cuotas 1X2 y goles (The Odds API)")
+    sub.add_parser("derive-match-stats", help="Rellena match_stats desde lo crudo (sin red)")
+    ident = sub.add_parser("identity", help="Emparejado de jugadores entre fuentes")
+    isub = ident.add_subparsers(dest="identity_command", required=True)
+    cov = isub.add_parser("coverage", help="Cobertura del emparejado (criterio de la Fase 2)")
+    cov.add_argument(
+        "--recent", type=int, default=None, help="Solo quienes jugaron en las últimas N jornadas"
+    )
+    isub.add_parser("rematch", help="Reintenta la cola de revisión (sin red)")
+    srch = isub.add_parser("search", help="Busca jugadores de Mister por nombre (sin red)")
+    srch.add_argument("query", nargs="+")
+    srch.add_argument("--team", default=None, help="Filtra por equipo (parte del nombre)")
+    exp = isub.add_parser("export-review", help="Exporta la cola de revisión a CSV")
+    exp.add_argument("path")
+    imp = isub.add_parser("import-review", help="Aplica las decisiones del CSV")
+    imp.add_argument("path")
+    for p in (ident,):
+        p.add_argument("--source", default="futbolfantasy")
     return parser
 
 
@@ -112,6 +143,101 @@ def _calibrate(settings: Settings, target: str) -> int:
     with connect(settings.database_dsn()) as conn:
         report = run_calibration(conn, target=target)
     print(format_calibration(report))
+    return EXIT_OK
+
+
+def _capture_lineups(settings: Settings, *, skip_mister: bool) -> int:
+    from mister_assistant.jobs.capture_lineups import run_capture_lineups
+    from mister_assistant.sources import futbolfantasy as ff
+    from mister_assistant.sources.mister import MisterClient
+    from mister_assistant.store.db import connect
+
+    dsn = settings.database_dsn()
+    ff_client = ff.make_client()
+    try:
+        with connect(dsn) as conn:
+            if skip_mister:
+                result = run_capture_lineups(conn, None, ff_client)
+            else:
+                with MisterClient(settings) as mister:
+                    result = run_capture_lineups(conn, mister, ff_client)
+    finally:
+        ff_client.close()
+    return _report_job(settings, result)
+
+
+def _capture_odds(settings: Settings) -> int:
+    from mister_assistant.jobs.capture_odds import run_capture_odds
+    from mister_assistant.sources.odds import OddsClient
+    from mister_assistant.store.db import connect
+
+    if settings.odds_api_key is None or not settings.odds_api_key.get_secret_value().strip():
+        print("ODDS_API_KEY no configurada: no se piden cuotas")
+        return EXIT_OK
+    dsn = settings.database_dsn()
+    with connect(dsn) as conn, OddsClient(settings.odds_api_key.get_secret_value()) as client:
+        result = run_capture_odds(conn, client)
+    return _report_job(settings, result)
+
+
+def _derive_match_stats(settings: Settings) -> int:
+    from mister_assistant.jobs.derive_match_stats import run_derive_match_stats
+    from mister_assistant.store.db import connect
+
+    with connect(settings.database_dsn()) as conn:
+        n = run_derive_match_stats(conn)
+    print(f"match_stats: {n} filas derivadas")
+    return EXIT_OK
+
+
+def _identity(settings: Settings, args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from mister_assistant.identity import store as idstore
+    from mister_assistant.store.db import connect
+
+    with connect(settings.database_dsn()) as conn:
+        match args.identity_command:
+            case "coverage":
+                cov = idstore.coverage(conn, args.source, args.recent)
+                scope = (
+                    f"en las últimas {args.recent} jornadas" if args.recent else "esta temporada"
+                )
+                print(
+                    f"{args.source}: {cov.matched}/{cov.total} jugadores con minutos {scope}"
+                    f" emparejados ({cov.rate:.1%}); objetivo ≥ 98%"
+                )
+                for pid, name, team in cov.missing[:50]:
+                    print(f"  sin emparejar: {pid} {name} ({team})")
+                return EXIT_OK if cov.rate >= 0.98 else EXIT_FAILED
+            case "search":
+                positions = {1: "POR", 2: "DEF", 3: "CEN", 4: "DEL"}
+                for pid, name, team, pos, score in idstore.search_players(
+                    conn, " ".join(args.query), args.team
+                ):
+                    pos_label = positions.get(pos or 0, "?")
+                    print(f"{pid:>8}  {name:<28} {team:<22} {pos_label}  {score:.0f}")
+                return EXIT_OK
+            case "rematch":
+                with conn.transaction():
+                    st = idstore.rematch_pending(conn, args.source)
+                pending = st.review + st.unmatched
+                print(f"revisados {st.new}: {st.accepted} emparejados, {pending} siguen pendientes")
+            case "export-review":
+                n = idstore.export_review(conn, Path(args.path))
+                print(
+                    f"{n} pendientes exportados a {args.path};"
+                    " rellena «decision» con un player_id o «ignorar»"
+                )
+            case "import-review":
+                with conn.transaction():
+                    im = idstore.import_review(conn, Path(args.path))
+                print(
+                    f"enlazados {im.linked}, ignorados {im.ignored}, sin decisión {im.skipped},"
+                    f" conflictos {len(im.conflicts)}"
+                )
+                for c in im.conflicts:
+                    print(f"  ✗ {c}")
     return EXIT_OK
 
 

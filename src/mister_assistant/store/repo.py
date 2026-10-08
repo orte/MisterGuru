@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Sequence
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import psycopg
@@ -63,6 +63,41 @@ def save_raw(conn: Conn, resp: MisterResponse, run_date: date, source: str = "mi
     )
 
 
+def save_raw_payload(
+    conn: Conn,
+    *,
+    source: str,
+    route: str,
+    params: dict[str, str],
+    run_date: date,
+    captured_at: datetime,
+    status_code: int = 200,
+    body_json: Any = None,
+    body_text: str | None = None,
+) -> None:
+    """Respuesta cruda de una fuente que no es Mister (ya reducida a lo útil)."""
+    conn.execute(
+        "insert into raw_responses"
+        " (source, route, params, params_key, run_date, captured_at, status_code,"
+        "  body_json, body_text)"
+        " values (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " on conflict (source, route, params_key, run_date) do update set"
+        "  captured_at = excluded.captured_at, body_json = excluded.body_json,"
+        "  body_text = excluded.body_text",
+        (
+            source,
+            route,
+            Jsonb(params),
+            params_key(params),
+            run_date,
+            captured_at,
+            status_code,
+            Jsonb(sanitize(body_json)) if body_json is not None else None,
+            body_text,
+        ),
+    )
+
+
 def insert_rows(
     conn: Conn,
     table: str,
@@ -98,7 +133,7 @@ def insert_rows(
         has_updated_at = table in _TABLES_WITH_UPDATED_AT
         if has_updated_at:
             sets.append(sql.SQL("updated_at = now()"))
-        if table == "player_gameweek":
+        if table in ("player_gameweek", "match_stats"):
             sets.append(sql.SQL("captured_at = now()"))
         stmt += sql.SQL("do update set ") + sql.SQL(", ").join(sets)
     else:

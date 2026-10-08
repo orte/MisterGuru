@@ -1,0 +1,46 @@
+name: Alineaciones probables
+
+on:
+  schedule:
+    # La serie temporal de la probabilidad de titularidad es un dato en sí:
+    # martes y jueves por la mañana, y a diario de viernes a lunes (jornada).
+    # Cada captura: 1 petición a Mister y 11 a Fútbol Fantasy.
+    - cron: "0 9 * * 2,4"
+    - cron: "0 8,16 * * 5"
+    - cron: "0 8 * * 6,0,1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mister-requests
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MISTER_TOKEN: ${{ secrets.MISTER_TOKEN }}
+      MISTER_X_AUTH: ${{ secrets.MISTER_X_AUTH }}
+      MISTER_PHPSESSID: ${{ secrets.MISTER_PHPSESSID }}
+      MISTER_REFRESH_TOKEN: ${{ secrets.MISTER_REFRESH_TOKEN }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --no-dev
+      - name: Migraciones
+        run: uv run mister-assistant migrate
+      - name: Capturar alineaciones
+        run: uv run mister-assistant capture-lineups
+      - name: Avisar del fallo
+        if: failure()
+        run: >-
+          uv run mister-assistant notify
+          "❌ Falló la captura de alineaciones: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

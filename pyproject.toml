@@ -10,6 +10,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
+    "rapidfuzz>=3.9",
 ]
 
 [project.scripts]

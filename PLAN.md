@@ -163,7 +163,7 @@ Fuentes ──► Ingesta ──► Almacén (Postgres) ──► Modelos ──
 | Fútbol Fantasy | Probabilidad de titularidad, lesionados, sancionados | HTML frágil, limita peticiones |
 | Jornada Perfecta | Respaldo de alineaciones; sección de cronistas | HTML frágil |
 | Analítica Fantasy | Histórico de puntos y valor en Mister | HTML frágil |
-| Understat | xG, xA, tiros, minutos por partido | Estable |
+| ~~Understat~~ | ~~xG, xA, tiros, minutos por partido~~ | Descartado: robots.txt lo prohíbe. Se usan las estadísticas de SofaScore que da Mister |
 | API de cuotas (plan gratuito) | 1X2, goles esperados por equipo, goleador | Cuota mensual |
 | SofaScore | Nota por partido | Protegido contra scraping → **no depender**; usar la nota que ya da Mister |
 
@@ -279,17 +279,24 @@ Objetivo: empezar a acumular historia y replicar la puntuación al punto.
 
 ### Fase 2 — Fuentes externas e identidades
 
-- [ ] Clientes de Fútbol Fantasy (titularidad, bajas), Understat (xG/xA/minutos)
+- [x] Clientes de Fútbol Fantasy (titularidad, bajas), Understat (xG/xA/minutos)
       y cuotas. Cada uno con caché, espera entre peticiones y fallo aislado.
-- [ ] `identity/`: emparejado por nombre normalizado + equipo + posición con
+      *Understat descartado (robots.txt lo prohíbe); xG/xA/minutos salen de las
+      estadísticas de SofaScore que ya da Mister. Ver docs/external-sources.md.*
+- [x] `identity/`: emparejado por nombre normalizado + equipo + posición con
       rapidfuzz; lo dudoso va a una cola de revisión (CSV o comando interactivo).
-- [ ] Job que captura titularidades varias veces por semana (la serie temporal de
+- [x] Job que captura titularidades varias veces por semana (la serie temporal de
       la probabilidad es un dato en sí).
 - [ ] Histórico de temporadas anteriores (puntos Mister y picas/estrellas por
       jornada) si alguna fuente lo ofrece, para entrenar antes.
+      *Fútbol Fantasy lo ofrece por jugador (~500 peticiones de 1,7 MB por
+      temporada); se aplaza a la Fase 5.*
 
 **Aceptación:** ≥ 98% de los jugadores con minutos esta temporada emparejados en
 todas las fuentes; ninguna fuente caída detiene el snapshot diario.
+*Ajustado (2026-10-08): ≥ 98% de los jugadores con minutos en las últimas 3
+jornadas (`identity coverage --recent 3`); los que ya no juegan no salen en las
+alineaciones probables.*
 
 ### Fase 3 — Puntos esperados v0, once óptimo e informe de jornada
 

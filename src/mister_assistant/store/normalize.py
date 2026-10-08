@@ -392,6 +392,46 @@ def player_gameweek_row(
     )
 
 
+@dataclass(frozen=True)
+class MatchStatsRow(Row):
+    player_id: int
+    fixture_id: int
+    gameweek_id: int
+    team_id: int | None
+    minutes: int | None
+    xg: float
+    xa: float
+    shots: int
+    shots_on_target: int
+    key_passes: int
+    touches: int | None
+
+
+def match_stats_row(pgw_data: object) -> MatchStatsRow | None:
+    """xG, xA, tiros y minutos (SofaScore vía Mister). Sustituye a Understat.
+
+    SofaScore omite las claves que valen 0 (p. ej. `expectedGoals` sin tiros).
+    """
+    d = _require(pgw_data, "player-gameweek")
+    stats = _json_field(d, "stats")
+    match_id = _int(d.get("id_match"))
+    if match_id is None or not stats:
+        return None
+    return MatchStatsRow(
+        player_id=int(d.get("id_player") or d["id"]),
+        fixture_id=match_id,
+        gameweek_id=int(d["id_gameweek"]),
+        team_id=_int(d.get("match_team_id") or d.get("id_team")),
+        minutes=_int(stats.get("minutesPlayed")),
+        xg=_float(stats.get("expectedGoals")) or 0.0,
+        xa=_float(stats.get("expectedAssists")) or 0.0,
+        shots=_int(stats.get("totalShots")) or 0,
+        shots_on_target=_int(stats.get("onTargetScoringAttempt")) or 0,
+        key_passes=_int(stats.get("keyPass")) or 0,
+        touches=_int(stats.get("touches")),
+    )
+
+
 # -- /ajax/sw/users --------------------------------------------------------------
 
 

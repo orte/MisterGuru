@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     # Cadena de conexión de Postgres (Supabase → Connect → Session pooler).
     database_url: SecretStr | None = None
 
+    # The Odds API (plan gratuito: 500 créditos/mes). Sin clave no se piden cuotas.
+    odds_api_key: SecretStr | None = None
+
     telegram_bot_token: SecretStr | None = None
     telegram_chat_id: str | None = None
 
@@ -68,6 +71,7 @@ class Settings(BaseSettings):
             "mister_refresh_token",
             "database_url",
             "telegram_bot_token",
+            "odds_api_key",
         ):
             secret = getattr(self, name)
             if _has_value(secret):

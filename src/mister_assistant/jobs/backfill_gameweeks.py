@@ -125,4 +125,7 @@ def _player(
     repo.save_raw(conn, resp, run_date)
     row = nz.player_gameweek_row(resp.data, p.events)
     repo.insert_rows(conn, "player_gameweek", [row], ["player_id", "gameweek_id"], update=True)
+    stats = nz.match_stats_row(resp.data)
+    if stats is not None:
+        repo.insert_rows(conn, "match_stats", [stats], ["player_id", "fixture_id"], update=True)
     return True

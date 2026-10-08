@@ -5,7 +5,7 @@ completo está en [PLAN.md](PLAN.md).
 
 ## Estado
 
-**Fase 1 — almacén, snapshot diario y motor de puntuación.**
+**Fase 2 — fuentes externas e identidades.**
 
 - Fase 0: cliente de Mister de solo lectura con lista blanca de rutas
   (`sources/mister.py`), [catálogo de endpoints](docs/mister-endpoints.md),
@@ -17,6 +17,9 @@ completo está en [PLAN.md](PLAN.md).
 - `scoring/mixed.py`: motor de puntuación Mixta y
   [calibración](docs/scoring-calibration.md) contra Mister.
 - Workflow diario en GitHub Actions con aviso por Telegram.
+- Fase 2 ([fuentes externas](docs/external-sources.md)): alineaciones
+  probables de Mister y Fútbol Fantasy, cuotas (The Odds API), xG/xA/tiros por
+  partido (SofaScore vía Mister) y emparejado de jugadores con cola de revisión.
 
 ## Puesta en marcha
 
@@ -42,6 +45,12 @@ Códigos de salida: `0` OK, `1` error, `2` faltan variables, `3` sesión caducad
 | `backfill-gameweeks [--gameweek N] [--max-requests N]` | Desglose de jornadas cerradas (~300 peticiones por jornada). Reanudable |
 | `calibrate [--target points_mix\|points_final]` | Recalcula `player_gameweek` con el motor y lo compara con Mister |
 | `notify TEXTO` | Envía un mensaje por Telegram |
+| `capture-lineups [--skip-mister]` | Alineaciones probables de Mister y Fútbol Fantasy (12 peticiones) |
+| `capture-odds` | Cuotas 1X2 y goles (1 petición, 2 créditos). Sin `ODDS_API_KEY` no hace nada |
+| `derive-match-stats` | Rellena `match_stats` desde lo crudo (sin red) |
+| `identity coverage [--recent N]` | Cobertura del emparejado con Fútbol Fantasy |
+| `identity rematch` | Reintenta la cola de revisión (sin red) |
+| `identity export-review CSV` / `import-review CSV` | Revisión manual de emparejados dudosos |
 
 Todos se ejecutan con `uv run mister-assistant <comando>`.
 
@@ -68,10 +77,13 @@ no expone nada; el job entra como propietario.
 ### GitHub Actions
 
 `.github/workflows/daily.yml` corre a diario a las 06:30 UTC (y a mano con
-*Run workflow*). Necesita estos *repository secrets*: `MISTER_TOKEN`,
-`MISTER_X_AUTH`, `MISTER_PHPSESSID`, `MISTER_REFRESH_TOKEN`, `DATABASE_URL`,
-`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Si la sesión de Mister caduca o algo
-falla, llega un aviso por Telegram.
+*Run workflow*): snapshot, jornadas recién cerradas y cuotas.
+`.github/workflows/lineups.yml` captura alineaciones martes y jueves y a diario
+de viernes a lunes. Comparten grupo de concurrencia para no pedir a Mister a la
+vez. Necesitan estos *repository secrets*: `MISTER_TOKEN`, `MISTER_X_AUTH`,
+`MISTER_PHPSESSID`, `MISTER_REFRESH_TOKEN`, `DATABASE_URL`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` y, opcional, `ODDS_API_KEY`. Si la sesión
+de Mister caduca o algo falla, llega un aviso por Telegram.
 
 ### Renovar la sesión
 
