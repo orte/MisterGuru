@@ -1,0 +1,28 @@
+{
+  "status": "ok",
+  "data": {
+    "community": {
+      "id": 111,
+      "name": "Liga de prueba",
+      "provider": "mix",
+      "type": "comunio",
+      "mode": "private",
+      "max_users": 20,
+      "startingBalance": 50000000,
+      "startingPlayers": 15,
+      "team_limit": 40,
+      "sale_limit": 8,
+      "market_speed": 1,
+      "market_stay": 1,
+      "clauses": 1,
+      "clauses_gameweek": 1,
+      "loans": 0,
+      "salaries": 0,
+      "max_debt": 4,
+      "show_balances": 0,
+      "is_captain_enabled": 0,
+      "prizes": {"points": 100000, "goals": 0, "best_xi": 0, "positions": {"1": 200000, "2": 400000}}
+    },
+    "sport": {"id": 1, "name": "Fútbol"}
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "status": "ok",
+  "data": [
+    {"id": 1, "id_community": 111, "category": "transfer", "created": "2026-09-29 21:01:00", "data": []}
+  ],
+  "cfg": {
+    "env": "prod",
+    "market_date": "2026-10-08",
+    "auth": "rotated-x-auth-value",
+    "context": {
+      "communities": [{"id": 222}, {"id": 111}],
+      "community": {"id": 111}
+    }
+  }
+}
