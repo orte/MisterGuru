@@ -1,0 +1,50 @@
+name: Informe de jornada
+
+on:
+  schedule:
+    # Cada hora: el comando solo actúa en las ventanas víspera (20-28 h antes del
+    # primer partido) y previa (2-4 h antes), una vez por ventana. El resto de
+    # ejecuciones solo consultan la BD (ninguna petición a Mister).
+    - cron: "20 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Enviar ahora el informe aunque no toque"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mister-requests
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MISTER_TOKEN: ${{ secrets.MISTER_TOKEN }}
+      MISTER_X_AUTH: ${{ secrets.MISTER_X_AUTH }}
+      MISTER_PHPSESSID: ${{ secrets.MISTER_PHPSESSID }}
+      MISTER_REFRESH_TOKEN: ${{ secrets.MISTER_REFRESH_TOKEN }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --no-dev
+      - name: Migraciones
+        run: uv run mister-assistant migrate
+      - name: Informe
+        run: uv run mister-assistant gameweek-report ${{ inputs.force && ' ' || '--auto' }}
+      - name: Avisar del fallo
+        if: failure()
+        run: >-
+          uv run mister-assistant notify
+          "❌ Falló el informe de jornada: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

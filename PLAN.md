@@ -300,20 +300,22 @@ alineaciones probables.*
 
 ### Fase 3 — Puntos esperados v0, once óptimo e informe de jornada
 
-- [ ] `models/minutes.py`: P(titular), P(suplente que entra), minutos esperados.
+- [x] `models/minutes.py`: P(titular), P(suplente que entra), minutos esperados.
       Parte de la probabilidad externa y la corrige con el histórico propio.
-- [ ] `models/points.py` v0, sin aprendizaje automático:
+- [x] `models/points.py` v0, sin aprendizaje automático:
       - por jugador, media reciente de cada componente (AS, Marca, MD, SofaScore)
         cuando es titular, con regresión a la media de su posición y equipo;
       - ajuste por rival y localía a partir de las cuotas;
       - bonus de gol = P(gol) × puntos de su posición, con xG por 90 y minutos;
       - escenarios titular / suplente / no juega, con S.C. = 0 en suplencias cortas;
       - salida: media, suelo (p20) y techo (p80).
-- [ ] `decide/lineup.py`: programación entera sobre las formaciones que permita
+- [x] `decide/lineup.py`: programación entera sobre las formaciones que permita
       la liga; nunca deja huecos; marca los puestos frágiles (jugador con baja
       probabilidad de jugar) y propone alternativa.
-- [ ] Guardar cada ejecución en `predictions` antes del primer partido.
-- [ ] Informe de jornada por Telegram: once recomendado, dudas, cambios respecto
+      *Sin programación entera: el objetivo es separable, así que elegir los
+      mejores por línea en cada formación ya es el óptimo exacto (docs/model-v0.md).*
+- [x] Guardar cada ejecución en `predictions` antes del primer partido.
+- [x] Informe de jornada por Telegram: once recomendado, dudas, cambios respecto
       al once actual y por qué. Se envía la víspera y 3 h antes del primer partido.
 
 **Aceptación:** el informe llega solo antes de cada jornada durante dos jornadas

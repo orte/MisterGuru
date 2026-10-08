@@ -48,6 +48,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _derive_match_stats(settings)
             case "identity":
                 return _identity(settings, args)
+            case "gameweek-report":
+                return _gameweek_report(
+                    settings, auto=args.auto, dry_run=args.dry_run, refresh=not args.no_refresh
+                )
     except ConfigError as exc:
         print(f"✗ Configuración: {exc}", file=sys.stderr)
         return EXIT_CONFIG
@@ -76,6 +80,14 @@ def _parser() -> argparse.ArgumentParser:
     lin.add_argument("--skip-mister", action="store_true", help="Solo Fútbol Fantasy")
     sub.add_parser("capture-odds", help="Cuotas 1X2 y goles (The Odds API)")
     sub.add_parser("derive-match-stats", help="Rellena match_stats desde lo crudo (sin red)")
+    rep = sub.add_parser("gameweek-report", help="Predicciones, once recomendado e informe")
+    rep.add_argument(
+        "--auto", action="store_true", help="Solo en las ventanas víspera / 3 h antes, una vez"
+    )
+    rep.add_argument("--dry-run", action="store_true", help="Imprime el informe sin enviarlo")
+    rep.add_argument(
+        "--no-refresh", action="store_true", help="No recaptura alineaciones ni cuotas antes"
+    )
     ident = sub.add_parser("identity", help="Emparejado de jugadores entre fuentes")
     isub = ident.add_subparsers(dest="identity_command", required=True)
     cov = isub.add_parser("coverage", help="Cobertura del emparejado (criterio de la Fase 2)")
@@ -239,6 +251,54 @@ def _identity(settings: Settings, args: argparse.Namespace) -> int:
                 for c in im.conflicts:
                     print(f"  ✗ {c}")
     return EXIT_OK
+
+
+def _gameweek_report(settings: Settings, *, auto: bool, dry_run: bool, refresh: bool) -> int:
+    from datetime import UTC, datetime
+
+    from mister_assistant.jobs import gameweek_report as gr
+    from mister_assistant.jobs.capture_lineups import run_capture_lineups
+    from mister_assistant.jobs.capture_odds import run_capture_odds
+    from mister_assistant.sources import futbolfantasy as ff
+    from mister_assistant.sources.mister import MisterClient, SessionExpiredError
+    from mister_assistant.sources.odds import OddsClient
+    from mister_assistant.store.db import connect
+
+    now = datetime.now(UTC)
+    with connect(settings.database_dsn()) as conn:
+        gw = gr.next_gameweek(conn, now)
+        if gw is None:
+            print("No hay ninguna jornada próxima en la BD (¿falta snapshot-daily?)")
+            return EXIT_OK if auto else EXIT_FAILED
+        slot = gr.due_slot(conn, gw, now) if auto else gr.manual_slot(now)
+        if slot is None:
+            print(f"J{gw.number}: nada que enviar ahora (faltan {gr.hours_until(gw, now):.1f} h)")
+            return EXIT_OK
+        try:
+            with MisterClient(settings) as mister:
+                if refresh:
+                    ff_client = ff.make_client()
+                    try:
+                        lr = run_capture_lineups(conn, mister, ff_client)
+                        print(lr.summary())
+                    finally:
+                        ff_client.close()
+                    key = settings.odds_api_key
+                    if key is not None and key.get_secret_value().strip():
+                        with OddsClient(key.get_secret_value()) as oc:
+                            print(run_capture_odds(conn, oc).summary())
+                result = gr.build_report(conn, mister, gw, slot=slot, now=datetime.now(UTC))
+        except SessionExpiredError as exc:
+            _send(settings, f"🔑 No se pudo preparar el informe de la J{gw.number}: {exc}")
+            return EXIT_SESSION_EXPIRED
+        assert result.message is not None
+        print(result.message)
+        if dry_run:
+            return EXIT_OK
+        delivered = _send(settings, result.message)
+        with conn.transaction():
+            gr.log_sent(conn, gw, slot, result.run_id, delivered)
+        return EXIT_OK if delivered else EXIT_FAILED
 
 
 def _notify(settings: Settings, text: str) -> int:

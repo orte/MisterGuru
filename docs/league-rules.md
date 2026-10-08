@@ -30,8 +30,7 @@ interpretar se marca *(por confirmar)*.
 - Capitanes: no.
 - Cambios durante la jornada: no.
 - Saldos de los rivales: **ocultos**. Hay que estimarlos para las cláusulas (Fase 4).
-- Formaciones válidas: 4-4-2, 4-5-1, 4-3-3, 3-4-3, 3-5-2, 5-4-1, 5-3-2, 4-2-4,
-  4-6-0, 3-3-4, 3-6-1, 5-5-0.
+- Formaciones válidas: 4-4-2, 4-5-1, 4-3-3, 3-4-3, 3-5-2, 5-4-1, 5-3-2.
 
 ## Correspondencia con la configuración de Mister
 
@@ -54,7 +53,8 @@ interpretar se marca *(por confirmar)*.
 | `is_captain_enabled` | 0 |
 | `live_changes` | 0 |
 | `show_balances` | 0 |
-| `sport.parameters.formations` | las 12 de arriba |
+| `sport.parameters.formations` | 12; de ellas 4-2-4, 4-6-0, 3-3-4, 3-6-1 y 5-5-0 son de pago (`free = false` en `/team`) |
+| `purchase_formations` | 0 (compras desactivadas: solo valen las 7 gratuitas) |
 
 ## Correcciones respecto a las notas originales
 
@@ -62,3 +62,6 @@ interpretar se marca *(por confirmar)*.
   15º». Según Mister, el 1º cobra 0 € y el escalado empieza en el 2º.
 - **«Total de jugadores: 15»:** son los jugadores iniciales por plantilla
   (`startingPlayers`), no los participantes, que son 14.
+- **Formaciones:** Mister lista 12 en `sport.parameters.formations`, pero 5
+  (4-2-4, 4-6-0, 3-3-4, 3-6-1 y 5-5-0) son de pago y la liga no permite compras.
+  Solo valen las 7 gratuitas.

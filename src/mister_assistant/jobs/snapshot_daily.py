@@ -92,6 +92,18 @@ def _gameweek(conn: Conn, client: MisterClient, run_date: date, result: JobResul
     fixtures = nz.fixtures_from(data)
     repo.insert_rows(conn, "fixtures", fixtures, ["id"], update=True)
     result.stats["partidos"] = len(fixtures)
+    # Partidos de la jornada siguiente: el informe de la víspera los necesita aunque
+    # la actual aún no haya terminado (jornadas entre semana) y las cuotas también.
+    current_id = int(data["gameweekStatus"]["id"])
+    upcoming = [
+        g for g in nz.gameweeks_from(data) if g.status == "unstarted" and g.id != current_id
+    ]
+    if upcoming:
+        nxt = min(upcoming, key=lambda g: g.number)
+        nresp = client.gameweek(nxt.id)
+        repo.save_raw(conn, nresp, run_date)
+        repo.insert_rows(conn, "fixtures", nz.fixtures_from(nresp.data), ["id"], update=True)
+        repo.upsert_teams(conn, nz.teams_from_fixtures(nresp.data))
     return int(data["id_manager"])
 
 

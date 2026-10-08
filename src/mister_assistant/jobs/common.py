@@ -10,6 +10,7 @@ from typing import Literal, TypeVar
 
 import psycopg
 
+from mister_assistant.sources.http import SourceError
 from mister_assistant.sources.mister import MisterError, SessionExpiredError
 from mister_assistant.store.normalize import MADRID, NormalizeError
 
@@ -58,6 +59,18 @@ class DatabaseLostError(Exception):
     """Se perdió la conexión con Postgres: no tiene sentido seguir con más pasos."""
 
 
+# Errores que hacen fallar un paso sin tumbar el job.
+_STEP_ERRORS = (
+    MisterError,
+    SourceError,
+    NormalizeError,
+    psycopg.Error,
+    KeyError,
+    TypeError,
+    ValueError,
+)
+
+
 class StepRunner:
     """Ejecuta pasos independientes: el fallo de uno se registra y el job sigue.
 
@@ -82,7 +95,7 @@ class StepRunner:
             if self._conn.closed or self._conn.broken:
                 raise DatabaseLostError(f"{name}: {exc}".splitlines()[0]) from exc
             self._fail(name, exc)
-        except (MisterError, NormalizeError, psycopg.Error, KeyError, TypeError, ValueError) as exc:
+        except _STEP_ERRORS as exc:
             self._fail(name, exc)
         return None
 

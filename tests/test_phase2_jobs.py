@@ -316,3 +316,20 @@ def test_import_rejects_file_without_columns(db: Conn, tmp_path: Path) -> None:
     path.write_text("a,b,c\n1,2,3\n", encoding="utf-8")
     with pytest.raises(idstore.ReviewFileError):
         idstore.import_review(db, path)
+
+
+def test_futbolfantasy_down_does_not_break_the_job(db: Conn, settings: Settings) -> None:
+    seed(db)
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("caído", request=request)
+
+    broken = PoliteClient(
+        ff.BASE_URL, min_interval_s=0, transport=httpx.MockTransport(down), sleep=lambda _: None
+    )
+    with mister_client(settings) as mister:
+        result = run_capture_lineups(db, mister, broken, run_date=DAY, now=NOW)
+    assert result.status == "partial"
+    assert any("ff índice" in e for e in result.errors)
+    # Lo de Mister sí se guardó.
+    assert count(db, "select count(*) from lineup_forecast where source = 'mister'") == 2
