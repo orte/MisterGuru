@@ -1,6 +1,7 @@
 """Estimación de saldos (los de los rivales están ocultos en la liga).
 
-saldo ≈ saldo inicial
+saldo ≈ 50 M€ − valor de la plantilla inicial (los 15 jugadores iniciales se
+        descuentan del saldo de partida)
         + Σ jornadas (puntos × 100.000 € + (puesto en la jornada − 1) × 200.000 €)
         + Σ ventas − Σ compras (traspasos y cláusulas de league_events)
 
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
 
 import psycopg
@@ -20,6 +22,7 @@ import psycopg
 Conn = psycopg.Connection[tuple[Any, ...]]
 
 STARTING_BALANCE = 50_000_000
+STARTING_PLAYERS = 15
 EUR_PER_POINT = 100_000
 EUR_PER_RANK_STEP = 200_000  # (puesto − 1) × 200.000 €; el 1º cobra 0
 
@@ -34,6 +37,8 @@ class BalanceEstimate:
     sales: int
     purchases: int
     gameweeks: int
+    initial_value: int = 0
+    initial_players: int = 0  # identificados (de 15)
     team_value: int | None = None
     actual: int | None = None  # solo el propio
     details: dict[str, int] = field(default_factory=dict)
@@ -73,6 +78,46 @@ def rank_bonus(points_by_manager: dict[int, int], managers: list[int]) -> dict[i
     return {m: (ordered.index(p)) * EUR_PER_RANK_STEP for m, p in pts.items()}
 
 
+def initial_squads(conn: Conn) -> tuple[dict[int, list[int]], dict[int, int]]:
+    """Jugadores iniciales de cada mánager y su valor al empezar la temporada.
+
+    Inicial = su primer traspaso en la liga es una venta de ese mánager, o lo tiene
+    ahora y nunca se ha movido. El valor es el del día anterior al primer traspaso
+    de la liga. Los iniciales vendidos sin dejar rastro (nunca jugaron ni volvieron
+    a tener dueño) no se ven, pero su compra y su venta se compensan casi del todo.
+    """
+    first = conn.execute("select min(occurred_at)::date from league_events").fetchone()
+    if first is None or first[0] is None:
+        return {}, {}
+    start = first[0] - timedelta(days=1)
+    squads: dict[int, list[int]] = defaultdict(list)
+    seen: set[int] = set()
+    for pid, frm in conn.execute(
+        "select distinct on (player_id) player_id, from_manager_id from league_events"
+        " where category = 'transfer' and player_id is not null"
+        " order by player_id, occurred_at"
+    ):
+        seen.add(int(pid))
+        if frm is not None:
+            squads[int(frm)].append(int(pid))
+    for pid, mid in conn.execute(
+        "select player_id, manager_id from squad_snapshot"
+        " where snapshot_date = (select max(snapshot_date) from squad_snapshot)"
+    ):
+        if int(pid) not in seen:
+            squads[int(mid)].append(int(pid))
+    values = {
+        int(r[0]): int(r[1])
+        for r in conn.execute(
+            "select distinct on (player_id) player_id, value from player_value_daily"
+            " where value_date <= %s order by player_id, value_date desc",
+            (start,),
+        )
+    }
+    totals = {m: sum(values.get(p, 0) for p in ps) for m, ps in squads.items()}
+    return dict(squads), totals
+
+
 def estimate_balances(conn: Conn) -> list[BalanceEstimate]:
     managers = conn.execute(
         "select m.mister_manager_id, m.name, m.is_me, s.balance, s.team_value"
@@ -82,6 +127,7 @@ def estimate_balances(conn: Conn) -> list[BalanceEstimate]:
         " ) s on true"
     ).fetchall()
     ids = [int(m[0]) for m in managers]
+    initial, initial_value = initial_squads(conn)
     points = gameweek_points(conn)
     gameweeks = sorted({gw for per in points.values() for gw in per})
     rank_total: dict[int, int] = defaultdict(int)
@@ -103,7 +149,8 @@ def estimate_balances(conn: Conn) -> list[BalanceEstimate]:
         mid = int(mid)
         pbonus = EUR_PER_POINT * sum(points.get(mid, {}).values())
         f = flows[mid]
-        est = STARTING_BALANCE + pbonus + rank_total[mid] + f["sales"] - f["purchases"]
+        start = STARTING_BALANCE - initial_value.get(mid, 0)
+        est = start + pbonus + rank_total[mid] + f["sales"] - f["purchases"]
         out.append(
             BalanceEstimate(
                 manager_id=mid,
@@ -114,6 +161,8 @@ def estimate_balances(conn: Conn) -> list[BalanceEstimate]:
                 sales=f["sales"],
                 purchases=f["purchases"],
                 gameweeks=len(points.get(mid, {})),
+                initial_value=initial_value.get(mid, 0),
+                initial_players=len(initial.get(mid, [])),
                 team_value=int(team_value) if team_value is not None else None,
                 actual=int(balance) if is_me and balance is not None else None,
             )

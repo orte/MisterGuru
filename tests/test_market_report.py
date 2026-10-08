@@ -16,6 +16,9 @@ NOW = datetime(2026, 10, 8, 7, 0, tzinfo=UTC)
 TODAY = date(2026, 10, 8)
 ME, RIVAL = 1, 2
 KICKOFF = NOW + timedelta(days=1)
+# 50 M − 13 iniciales × 5 M + 30 pts × 100 k + 200 k (2º de la jornada)
+# − 10 M de compras + 2 M de ventas.
+OWN_BALANCE = 50_000_000 - 65_000_000 + 3_000_000 + 200_000 - 10_000_000 + 2_000_000
 
 
 def seed(db: Conn) -> None:
@@ -71,9 +74,7 @@ def seed(db: Conn) -> None:
         cur.execute(
             "insert into manager_snapshot (manager_id, snapshot_date, balance, max_bid, team_value)"
             " values (1, %s, %s, 30000000, 70000000), (2, %s, null, null, 40000000)",
-            # Saldo propio = 50 M + 30 pts × 100 k + 200 k (2º de la jornada)
-            # − 10 M de compras + 2 M de ventas.
-            (TODAY, 50_000_000 + 3_000_000 + 200_000 - 10_000_000 + 2_000_000, TODAY),
+            (TODAY, OWN_BALANCE, TODAY),
         )
         cur.executemany(
             "insert into squad_snapshot (player_id, snapshot_date, manager_id, market_value,"
@@ -112,8 +113,12 @@ def test_balance_estimator_matches_own_balance(db: Conn) -> None:
     seed(db)
     est = {b.manager_id: b for b in estimate_balances(db)}
     assert est[ME].error == 0
-    # Rival: 50 M + 50 pts × 100 k + 0 € (1º de la jornada) − 5,5 M.
-    assert est[RIVAL].estimated == 50_000_000 + 5_000_000 - 5_500_000
+    # Iniciales propios: los 12 que nunca se movieron + el 301 (lo primero es una
+    # venta); el 300 lo compró. A 5 M cada uno el día antes del primer traspaso.
+    assert (est[ME].initial_players, est[ME].initial_value) == (13, 65_000_000)
+    # Rival: 50 M − 1 inicial (500) + 50 pts × 100 k + 0 € (1º) − 5,5 M (compra del 501).
+    assert est[RIVAL].initial_players == 1
+    assert est[RIVAL].estimated == 50_000_000 - 5_000_000 + 5_000_000 - 5_500_000
     assert est[ME].rank_bonus == 200_000 and est[RIVAL].rank_bonus == 0
 
 

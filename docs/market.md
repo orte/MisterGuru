@@ -81,25 +81,29 @@ vende un rival, se muestra su precio.
 
 Ocultos en la liga (`show_balances = 0`). Se estiman así:
 
-    50 M + Σ jornadas (puntos × 100.000 € + (puesto − 1) × 200.000 €)
+    50 M − valor de la plantilla inicial
+         + Σ jornadas (puntos × 100.000 € + (puesto − 1) × 200.000 €)
          + ventas − compras
 
-Lo que no se ve (subidas de cláusula, otros ingresos o gastos) queda como error.
-**Solo se usan si con el saldo propio fallan en menos de 3 M€**; si no, el
+- **La plantilla inicial se paga**: los 15 jugadores iniciales se descuentan
+  de los 50 M de partida. Un jugador es inicial si lo primero que se sabe de él
+  es una venta de ese mánager, o si lo tiene ahora y nunca se ha movido. Su valor
+  es el del día anterior al primer traspaso de la liga.
+- Los iniciales vendidos sin dejar rastro (nunca jugaron ni volvieron a tener
+  dueño) no se ven, pero su compra inicial y su venta se compensan casi del todo.
+- Los mánagers sin plantilla (abandonaron la liga) no cuentan como amenaza.
+- **Gasto posible de un rival** = saldo estimado + 25 % del valor de su equipo
+  (la deuda que permite la liga). Es la hipótesis prudente: no está comprobado
+  que un clausulazo pueda pagarse con deuda.
+
+**Solo se usan si con el saldo propio fallan en menos de 3 M€.** Si no, el
 informe lo dice y se limita a listar tus cláusulas más bajas.
 
-**Estado (2026-10-08): no fiable.** Con el saldo propio se sobreestima en
-+29,5 M€ (1.034 traspasos reconstruidos desde el 7 de agosto). Hipótesis por
-orden de ajuste:
-
-1. **Los premios por jornada no se han ingresado** (27,8 M€ entre puntos y
-   puesto): sin ellos el error baja a +1,7 M€, compatible con los pocos
-   traspasos antiguos que no se han podido reconstruir.
-2. Al vender por cláusula se cobra menos que la cláusula (si se cobrara solo el
-   valor, el error quedaría en +7,5 M€).
-
-Se resolverá solo cuando acabe la J8: los snapshots diarios dirán cuánto sube
-el saldo al cerrar una jornada, descontados los traspasos.
+**Validación (2026-10-08): error de −2,3 M€** con el saldo propio (estimado
+2,0 M€, real 4,3 M€), con 12 de los 15 iniciales identificados. Sin descontar la
+plantilla inicial el error era de +29,5 M€. Pendiente de comprobar al cerrar la
+J8: que el premio por puesto va al revés (el 1º cobra 0) y si la J6, con un
+partido aplazado, ya se pagó.
 
 ## Ventas
 

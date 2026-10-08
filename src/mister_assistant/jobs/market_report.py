@@ -197,7 +197,10 @@ def build_market_report(conn: Conn, *, now: datetime | None = None) -> MarketRep
     own = next((b for b in estimates if b.actual is not None), None)
     own_error = own.error if own else None
     reliable = own_error is not None and abs(own_error) <= MAX_OWN_BALANCE_ERROR
-    rivals: list[BalanceEstimate] = [b for b in estimates if b.manager_id != me_id]
+    # Un mánager sin plantilla (abandonó la liga) no puede clausular.
+    rivals: list[BalanceEstimate] = [
+        b for b in estimates if b.manager_id != me_id and (b.team_value or 0) > 0
+    ]
 
     clause_rows = conn.execute(
         "select s.player_id, s.manager_id, s.clause_value, m.name from squad_snapshot s"
@@ -271,12 +274,18 @@ def build_market_report(conn: Conn, *, now: datetime | None = None) -> MarketRep
             lines.append("Ningún titular importante al alcance de los saldos estimados.")
         for ex in sorted(exposed, key=lambda e: -e.marginal_loss)[:TOP_CLAUSES]:
             who = ", ".join(t[1] for t in ex.threats[:3])
-            fix = (
-                f"subir al escalón {ex.raise_to.step} ({_eur(ex.raise_to.new_clause)})"
-                f" cuesta {_eur(ex.raise_to.cost)}"
-                if ex.raise_to
-                else "ni con la subida máxima queda fuera de su alcance"
-            )
+            if ex.raise_to is None:
+                fix = "ni con la subida máxima queda fuera de su alcance"
+            elif ex.raise_to.cost > balance:
+                fix = (
+                    f"subirla al escalón {ex.raise_to.step} costaría {_eur(ex.raise_to.cost)}"
+                    f" y tienes {_eur(balance)}: no llega"
+                )
+            else:
+                fix = (
+                    f"subir al escalón {ex.raise_to.step} ({_eur(ex.raise_to.new_clause)})"
+                    f" cuesta {_eur(ex.raise_to.cost)}"
+                )
             msg = f"- {ex.name}: cláusula {_eur(ex.clause)} · al alcance de {who} · {fix}"
             lines.append(msg)
             recs.append(

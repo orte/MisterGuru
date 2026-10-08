@@ -334,9 +334,8 @@ seguidas y el once propuesto es siempre válido en la app.
       valoración y cabe en caja, respetando saldo ≥ 0 al inicio de jornada.
 - [x] Cláusulas defensivas: jugadores propios expuestos = cláusula asequible para
       algún rival según su saldo. Decidir subida con la fórmula de coste de §2.4.
-      *Pendiente: el estimador de saldos rivales aún no cuadra con el propio
-      (+29,5 M€); hasta que lo haga, el informe solo lista las cláusulas más
-      bajas. Ver docs/market.md.*
+      *Saldos rivales estimados (error con el propio: −2,3 M€, una vez descontado
+      el valor de la plantilla inicial). Ver docs/market.md.*
 - [x] Ventas: jugadores con caída de valor esperada y bajo aporte de puntos.
 - [x] Informe diario matinal: mercado del día ordenado por valoración, alertas de
       cláusulas, movimientos de rivales desde ayer.
