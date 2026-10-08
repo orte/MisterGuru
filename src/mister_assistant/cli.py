@@ -260,7 +260,7 @@ def _gameweek_report(settings: Settings, *, auto: bool, dry_run: bool, refresh: 
     from mister_assistant.jobs.capture_lineups import run_capture_lineups
     from mister_assistant.jobs.capture_odds import run_capture_odds
     from mister_assistant.sources import futbolfantasy as ff
-    from mister_assistant.sources.mister import MisterClient, SessionExpiredError
+    from mister_assistant.sources.mister import MisterClient, MisterError, SessionExpiredError
     from mister_assistant.sources.odds import OddsClient
     from mister_assistant.store.db import connect
 
@@ -291,6 +291,10 @@ def _gameweek_report(settings: Settings, *, auto: bool, dry_run: bool, refresh: 
         except SessionExpiredError as exc:
             _send(settings, f"🔑 No se pudo preparar el informe de la J{gw.number}: {exc}")
             return EXIT_SESSION_EXPIRED
+        except (MisterError, ValueError) as exc:
+            _send(settings, f"⚠️ No se pudo preparar el informe de la J{gw.number}: {exc}")
+            print(f"✗ {exc}", file=sys.stderr)
+            return EXIT_FAILED
         assert result.message is not None
         print(result.message)
         if dry_run:

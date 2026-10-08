@@ -25,7 +25,7 @@ from typing import Any, Literal
 
 import httpx
 
-from mister_assistant.config import Settings
+from mister_assistant.config import ConfigError, Settings
 from mister_assistant.sources.mister_models import (
     Balance,
     FeedPage,
@@ -176,6 +176,12 @@ class MisterClient:
         missing = settings.missing_secrets()
         if missing:
             raise SessionExpiredError(f"Faltan credenciales en el entorno: {', '.join(missing)}")
+        invalid = settings.invalid_header_secrets()
+        if invalid:
+            raise ConfigError(
+                f"{', '.join(invalid)} tiene caracteres que no valen en una cabecera HTTP"
+                " (espacios, saltos de línea o comillas en medio). Vuelve a copiar el valor."
+            )
         assert settings.mister_token and settings.mister_x_auth and settings.mister_phpsessid
 
         self._settings = settings
@@ -311,6 +317,12 @@ class MisterClient:
                     params=form if route.method == "GET" else None,
                     headers=headers,
                 )
+            except httpx.LocalProtocolError as exc:
+                # Error al construir la petición (p. ej. una cabecera inválida): reintentar
+                # no lo arregla.
+                raise MisterApiError(
+                    f"Petición inválida a {route.path}: {type(exc).__name__}"
+                ) from exc
             except httpx.TransportError as exc:
                 delay = next(delays, None)
                 if delay is None:

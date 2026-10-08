@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from pydantic import Field, SecretStr
+import re
+
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REQUIRED_SECRETS: tuple[str, ...] = ("mister_token", "mister_x_auth", "mister_phpsessid")
+# Secrets que viajan en cabeceras o cookies HTTP: solo ASCII visible, sin espacios.
+HEADER_SECRETS: tuple[str, ...] = (*REQUIRED_SECRETS, "mister_refresh_token")
+_HEADER_SAFE = re.compile(r"[\x21-\x7e]*")
 
 
 class ConfigError(Exception):
@@ -40,6 +45,29 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
 
     log_level: str = "INFO"
+
+    @field_validator(
+        "mister_token", "mister_x_auth", "mister_phpsessid", "mister_refresh_token",
+        "database_url", "odds_api_key", "telegram_bot_token", mode="before",
+    )  # fmt: skip
+    @classmethod
+    def _strip(cls, value: object) -> object:
+        # Un secret pegado en GitHub con un salto de línea final rompe la cabecera
+        # HTTP (h11 LocalProtocolError). Se recortan espacios y saltos en los extremos.
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, SecretStr):
+            return SecretStr(value.get_secret_value().strip())
+        return value
+
+    def invalid_header_secrets(self) -> list[str]:
+        """Nombres de secrets con caracteres que no caben en una cabecera HTTP."""
+        bad = []
+        for name in HEADER_SECRETS:
+            secret = getattr(self, name)
+            if _has_value(secret) and not _HEADER_SAFE.fullmatch(secret.get_secret_value()):
+                bad.append(name.upper())
+        return bad
 
     def database_dsn(self) -> str:
         """DSN de Postgres validado. Lanza `ConfigError` con instrucciones si no sirve."""

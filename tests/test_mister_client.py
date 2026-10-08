@@ -296,3 +296,25 @@ def test_parses_league_settings_and_balance(settings: Settings) -> None:
     assert league.prizes.points == 100_000
     assert league.prizes.positions[2] == 400_000
     assert client.balance().max_debt == 20_699_770
+
+
+def test_invalid_header_secret_fails_fast_with_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    from mister_assistant.config import ConfigError
+
+    s = Settings(_env_file=None, mister_token="t", mister_x_auth="abc\ndef", mister_phpsessid="p")
+    with pytest.raises(ConfigError, match="MISTER_X_AUTH") as exc:
+        MisterClient(s)
+    assert "abc" not in str(exc.value)
+
+
+def test_local_protocol_errors_are_not_retried(settings: Settings) -> None:
+    calls: list[int] = []
+
+    def broken(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        raise httpx.LocalProtocolError("cabecera inválida")
+
+    client = make_client(settings, broken)
+    with pytest.raises(MisterApiError, match="Petición inválida"):
+        client.balance()
+    assert len(calls) == 1
