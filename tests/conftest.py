@@ -49,3 +49,46 @@ def settings() -> Settings:
 
 
 Handler = Callable[[httpx.Request], httpx.Response]
+
+
+# -- Postgres para tests de integración ------------------------------------------
+# TEST_DATABASE_URL (CI: servicio postgres) o, si no, un Postgres embebido
+# (pgserver) en un directorio temporal. Cada test usa una base de datos nueva.
+
+import os  # noqa: E402
+import uuid  # noqa: E402
+from collections.abc import Iterator  # noqa: E402
+
+import psycopg  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def pg_admin_uri(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+    uri = os.environ.get("TEST_DATABASE_URL")
+    if uri:
+        yield uri
+        return
+    pgserver = pytest.importorskip("pgserver")
+    server = pgserver.get_server(tmp_path_factory.mktemp("pg"), cleanup_mode="stop")
+    try:
+        yield server.get_uri()
+    finally:
+        server.cleanup()
+
+
+@pytest.fixture
+def db(pg_admin_uri: str) -> Iterator[psycopg.Connection[tuple[object, ...]]]:
+    from mister_assistant.store.db import connect, migrate
+
+    name = f"t_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(pg_admin_uri, autocommit=True) as admin:
+        admin.execute(f'create database "{name}"')
+    test_uri = psycopg.conninfo.make_conninfo(pg_admin_uri, dbname=name)
+    conn = connect(test_uri)
+    try:
+        migrate(conn)
+        yield conn
+    finally:
+        conn.close()
+        with psycopg.connect(pg_admin_uri, autocommit=True) as admin:
+            admin.execute(f'drop database "{name}" with (force)')

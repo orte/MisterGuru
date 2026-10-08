@@ -104,6 +104,9 @@ _ALLOWED: frozenset[tuple[str, str]] = frozenset((r.method, r.path) for r in ROU
 
 _LOGIN_HINTS = ("login", "signin", "sign-in", "onboarding", "auth")
 
+# Esperas antes de reintentar un error de red transitorio (corte, timeout).
+RETRY_DELAYS_S: tuple[float, ...] = (5.0, 20.0)
+
 
 @dataclass(frozen=True)
 class MisterResponse:
@@ -185,6 +188,7 @@ class MisterClient:
         self._token = self._initial_token
         self._x_auth = settings.mister_x_auth.get_secret_value()
         self.x_auth_rotated = False
+        self.requests = 0
 
         base = settings.mister_base_url.rstrip("/")
         host = httpx.URL(base).host
@@ -264,23 +268,7 @@ class MisterClient:
         if (route.method, route.path) not in _ALLOWED:
             raise ForbiddenRouteError(f"{route.method} {route.path} no está en la lista blanca")
 
-        self._throttle()
-        headers = {"x-auth": self._x_auth}
-        if route.kind == "html":
-            headers["partial-request"] = "true"
-        log.info("mister %s %s", route.method, route.path)
-        try:
-            resp = self._http.request(
-                route.method,
-                route.path,
-                data=form if route.method == "POST" else None,
-                params=form if route.method == "GET" else None,
-                headers=headers,
-            )
-        except httpx.HTTPError as exc:
-            raise MisterApiError(f"Error de red en {route.path}: {type(exc).__name__}") from exc
-        finally:
-            self._last_request_at = self._clock()
+        resp = self._send(route, form)
 
         self._track_token_cookie(resp)
         self._check_status(route, resp)
@@ -300,6 +288,46 @@ class MisterClient:
             text=resp.text,
             payload=payload,
         )
+
+    def _send(self, route: Route, form: dict[str, str]) -> httpx.Response:
+        """Envía la petición; reintenta los errores de red transitorios.
+
+        Solo se reintenta lo que no llegó a responder (transporte): un 4xx/5xx o
+        una sesión caducada se tratan después, sin reintentos.
+        """
+        delays = iter(RETRY_DELAYS_S)
+        while True:
+            self._throttle()
+            self.requests += 1
+            headers = {"x-auth": self._x_auth}
+            if route.kind == "html":
+                headers["partial-request"] = "true"
+            log.info("mister %s %s", route.method, route.path)
+            try:
+                return self._http.request(
+                    route.method,
+                    route.path,
+                    data=form if route.method == "POST" else None,
+                    params=form if route.method == "GET" else None,
+                    headers=headers,
+                )
+            except httpx.TransportError as exc:
+                delay = next(delays, None)
+                if delay is None:
+                    raise MisterApiError(
+                        f"Error de red en {route.path}: {type(exc).__name__}"
+                    ) from exc
+                log.warning(
+                    "error de red en %s (%s); reintento en %.0f s",
+                    route.path,
+                    type(exc).__name__,
+                    delay,
+                )
+                self._sleep(delay)
+            except httpx.HTTPError as exc:
+                raise MisterApiError(f"Error en {route.path}: {type(exc).__name__}") from exc
+            finally:
+                self._last_request_at = self._clock()
 
     def _throttle(self) -> None:
         if self._last_request_at is None:
@@ -382,7 +410,10 @@ class MisterClient:
     def player(self, player_id: int, slug: str) -> MisterResponse:
         return self.call("player", id=player_id, slug=slug, comments=0)
 
-    def gameweek(self, gameweek_id: int) -> MisterResponse:
+    def gameweek(self, gameweek_id: int | None = None) -> MisterResponse:
+        """Jornada por id; sin id, la jornada actual (o la próxima si no ha empezado)."""
+        if gameweek_id is None:
+            return self.call("gameweek", comments=0)
         return self.call("gameweek", id=gameweek_id, comments=0)
 
     def player_gameweek(self, manager_id: int, gameweek_id: int, player_id: int) -> MisterResponse:

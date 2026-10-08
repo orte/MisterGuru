@@ -1,0 +1,52 @@
+name: Snapshot diario
+
+on:
+  schedule:
+    # 06:30 UTC = 08:30 en Madrid (horario de verano), tras el ciclo de mercado de las 05:00.
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Repetir el snapshot aunque ya haya uno ok hoy"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      MISTER_TOKEN: ${{ secrets.MISTER_TOKEN }}
+      MISTER_X_AUTH: ${{ secrets.MISTER_X_AUTH }}
+      MISTER_PHPSESSID: ${{ secrets.MISTER_PHPSESSID }}
+      MISTER_REFRESH_TOKEN: ${{ secrets.MISTER_REFRESH_TOKEN }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --no-dev
+      - name: Comprobar sesión
+        run: uv run mister-assistant doctor --notify
+      - name: Migraciones
+        run: uv run mister-assistant migrate
+      - name: Snapshot diario
+        run: uv run mister-assistant snapshot-daily ${{ inputs.force && '--force' || '' }}
+      - name: Jornadas recién cerradas
+        # Incremental: solo pide los desgloses que faltan. Tope por si hay muchas pendientes.
+        run: uv run mister-assistant backfill-gameweeks --max-requests 700
+      - name: Avisar del fallo
+        if: failure()
+        run: >-
+          uv run mister-assistant notify
+          "❌ Falló el workflow diario: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

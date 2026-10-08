@@ -128,6 +128,9 @@ máquina propia.
 - **Alimenta:** `squad_snapshot` (dueño, cláusula, alineado), `manager_snapshot`
   (valor, puntos, posición), `managers`.
 - Con el `id` propio devuelve la plantilla propia (mejor que parsear `/team`).
+- **Mánager sin plantilla** (abandonó la liga): responde **404**. Se reconoce en
+  `/standings` porque falta la línea «N jugadores · € valor»; el job lo guarda
+  solo con lo que da la clasificación.
 
 ### `/ajax/sw/players` — ficha de jugador
 
@@ -170,6 +173,8 @@ máquina propia.
   - `points` (final), `value` (valor del jugador en esa jornada).
 - **Alimenta:** `player_gameweek` (picas AS, estrellas Marca/MD, nota
   SofaScore, minutos, goles, penaltis, tarjetas, puntos Mister) y `match_stats`.
+- Funciona con el `id_manager` propio para **cualquier** jugador, sea o no de
+  esa plantilla.
 - **Conclusión de aceptación:** Mister **sí expone el desglose por fuente**; no
   hace falta la alternativa de Jornada Perfecta. Coste: una petición por
   jugador y jornada; para el backfill de Fase 1 hay que limitar el universo
@@ -191,6 +196,21 @@ máquina propia.
     probables de Mister** por partido (`confirmed` 0/1).
   - `gameweek_user` {`points`, `rank`, `negative`} y `lineup`/`bench` propios
     para esa jornada.
+  - Estados de jornada vistos: `unstarted`, `ongoing` (empezada, o con algún
+    partido aplazado: la J6 26/27 sigue `ongoing` hasta el 21 de octubre) y
+    `finished`. Un partido está puntuado en Mixta cuando `status = "played"` y
+    tiene `mixtos_graded_date`.
+  - **Sin `id`** devuelve la jornada actual (o la próxima si no ha empezado).
+    `data.id_manager` es el id_uc propio.
+  - En una jornada **cerrada**, `players{id_match: {all: {id_team: [...]},
+    league: {...}}}` lista a todos los que jugaron (~320 por jornada) con
+    `points`, `played` y `events[]` (`{category, minute}`). Categorías vistas:
+    `goal`, `penalty` (gol de penalti, sin `goal` adicional), `own_goal`,
+    `assist`, `yellow`, `double` (segunda amarilla, junto a `yellow`), `red`,
+    `missed_penalty`, `saved_penalty`, `sub_in`, `sub_out`. `events` vale
+    `false` si no hay ninguno. `league` agrupa las alineaciones de la liga por
+    nombre de mánager.
+  - `best_lineup`: once ideal de la jornada.
 - **Alimenta:** `fixtures`, `lineup_forecast` (fuente `mister`).
 
 ### `/ajax/sw/admin` — configuración de la liga

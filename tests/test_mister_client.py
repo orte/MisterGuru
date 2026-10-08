@@ -150,6 +150,48 @@ def test_throttles_between_requests(settings: Settings) -> None:
     assert clock.slept == [pytest.approx(1.5)]
 
 
+# -- reintentos de red ---------------------------------------------------------
+
+
+def test_retries_transient_network_errors(settings: Settings) -> None:
+    clock = FakeClock()
+    attempts = {"n": 0}
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise httpx.RemoteProtocolError("corte", request=request)
+        return json_response(load_fixture("balance.json"))
+
+    client = make_client(settings, flaky, clock)
+    assert client.balance().current == 4_299_770
+    assert attempts["n"] == 3 and client.requests == 3
+    # Esperas de reintento (más la espera normal entre peticiones).
+    assert 5.0 in clock.slept and 20.0 in clock.slept
+
+
+def test_gives_up_after_retries(settings: Settings) -> None:
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("sin red", request=request)
+
+    client = make_client(settings, down)
+    with pytest.raises(MisterApiError, match="Error de red"):
+        client.balance()
+    assert client.requests == 3
+
+
+def test_http_errors_are_not_retried(settings: Settings) -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(500)
+
+    with pytest.raises(MisterApiError):
+        make_client(settings, handler).balance()
+    assert len(calls) == 1
+
+
 # -- sesión -------------------------------------------------------------------
 
 

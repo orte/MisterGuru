@@ -262,16 +262,16 @@ alternativa (sección de cronistas de Jornada Perfecta) antes de seguir.
 
 Objetivo: empezar a acumular historia y replicar la puntuación al punto.
 
-- [ ] Migraciones de `raw_responses`, `players`, `managers`, `fixtures`, y las
+- [x] Migraciones de `raw_responses`, `players`, `managers`, `fixtures`, y las
       tablas `*_snapshot`, `league_events`, `player_gameweek`.
-- [ ] Job `snapshot_daily`: guarda crudo y normaliza. Idempotente por día.
-- [ ] Job `backfill_gameweeks`: carga las jornadas ya disputadas de la temporada.
-- [ ] `scoring/mixed.py`: función pura `puntos(as, marca, md, sofa, posición,
+- [x] Job `snapshot_daily`: guarda crudo y normaliza. Idempotente por día.
+- [x] Job `backfill_gameweeks`: carga las jornadas ya disputadas de la temporada.
+- [x] `scoring/mixed.py`: función pura `puntos(as, marca, md, sofa, posición,
       goles, penaltis, tarjetas)` según §2.1.
-- [ ] Test de calibración: recalcular todas las filas de `player_gameweek` y
+- [x] Test de calibración: recalcular todas las filas de `player_gameweek` y
       comparar con los puntos que da Mister. Resolver aquí el redondeo y el
       tratamiento del bonus con S.C.
-- [ ] Workflow de GitHub Actions diario; aviso por Telegram si falla o si la
+- [x] Workflow de GitHub Actions diario; aviso por Telegram si falla o si la
       sesión ha caducado.
 
 **Aceptación:** siete días seguidos de snapshots sin huecos; el motor reproduce

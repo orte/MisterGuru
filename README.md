@@ -5,13 +5,18 @@ completo está en [PLAN.md](PLAN.md).
 
 ## Estado
 
-**Fase 0 — descubrimiento y cimientos.**
+**Fase 1 — almacén, snapshot diario y motor de puntuación.**
 
-- Cliente de Mister de solo lectura con lista blanca de rutas
-  (`src/mister_assistant/sources/mister.py`).
-- Catálogo de endpoints: [docs/mister-endpoints.md](docs/mister-endpoints.md).
-- Reglas de la liga: [docs/league-rules.md](docs/league-rules.md).
-- Comando `doctor`.
+- Fase 0: cliente de Mister de solo lectura con lista blanca de rutas
+  (`sources/mister.py`), [catálogo de endpoints](docs/mister-endpoints.md),
+  [reglas de la liga](docs/league-rules.md) y `doctor`.
+- Almacén Postgres (Supabase) con migraciones en `supabase/migrations/`
+  ([modelo de datos](docs/data-model.md)).
+- `snapshot-daily`: foto diaria de plantillas, saldo, mercado, clasificación y feed.
+- `backfill-gameweeks`: desglose por fuente de las jornadas disputadas.
+- `scoring/mixed.py`: motor de puntuación Mixta y
+  [calibración](docs/scoring-calibration.md) contra Mister.
+- Workflow diario en GitHub Actions con aviso por Telegram.
 
 ## Puesta en marcha
 
@@ -27,6 +32,47 @@ uv run mister-assistant doctor
 liga activa, las demás ligas de la cuenta y el saldo. Nunca imprime secretos.
 Códigos de salida: `0` OK, `1` error, `2` faltan variables, `3` sesión caducada.
 
+### Comandos
+
+| Comando | Qué hace |
+|---|---|
+| `doctor [--notify]` | Valida la sesión de Mister y lista las ligas |
+| `migrate` | Aplica las migraciones SQL pendientes en `DATABASE_URL` |
+| `snapshot-daily [--force]` | Foto del día (~20 peticiones). Idempotente: una vez por día |
+| `backfill-gameweeks [--gameweek N] [--max-requests N]` | Desglose de jornadas cerradas (~300 peticiones por jornada). Reanudable |
+| `calibrate [--target points_mix\|points_final]` | Recalcula `player_gameweek` con el motor y lo compara con Mister |
+| `notify TEXTO` | Envía un mensaje por Telegram |
+
+Todos se ejecutan con `uv run mister-assistant <comando>`.
+
+Primera puesta en marcha de la Fase 1:
+
+```bash
+uv run mister-assistant migrate
+uv run mister-assistant snapshot-daily
+uv run mister-assistant backfill-gameweeks      # ~2 h para 7 jornadas; se puede cortar y reanudar
+uv run mister-assistant calibrate
+```
+
+### Base de datos
+
+`DATABASE_URL` es la cadena de conexión de **Postgres**, no la URL https de la
+API de Supabase. En Supabase: **Connect → Session pooler** (funciona con IPv4,
+que es lo que tienen WSL y GitHub Actions; la conexión directa `db.<ref>` es
+solo IPv6). Tiene la forma
+`postgresql://postgres.<ref>:<contraseña>@aws-0-<región>.pooler.supabase.com:5432/postgres`.
+
+Todas las tablas tienen RLS activado sin políticas: la API pública de Supabase
+no expone nada; el job entra como propietario.
+
+### GitHub Actions
+
+`.github/workflows/daily.yml` corre a diario a las 06:30 UTC (y a mano con
+*Run workflow*). Necesita estos *repository secrets*: `MISTER_TOKEN`,
+`MISTER_X_AUTH`, `MISTER_PHPSESSID`, `MISTER_REFRESH_TOKEN`, `DATABASE_URL`,
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Si la sesión de Mister caduca o algo
+falla, llega un aviso por Telegram.
+
 ### Renovar la sesión
 
 Cuando `doctor` diga que la sesión ha caducado: iniciar sesión en
@@ -37,7 +83,7 @@ mister.mundodeportivo.com, abrir DevTools → Application → Cookies (`token`,
 ## Desarrollo
 
 ```bash
-uv run pytest          # tests deterministas, sin red
+uv run pytest          # tests deterministas, sin red (Postgres embebido vía pgserver)
 uv run ruff check src tests
 uv run mypy src tests
 ```
