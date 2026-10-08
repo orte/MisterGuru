@@ -323,19 +323,22 @@ seguidas y el once propuesto es siempre válido en la app.
 
 ### Fase 4 — Mercado y cláusulas
 
-- [ ] `models/value.py`: variación esperada del valor a 7 y 14 días, aprendida de
+- [x] `models/value.py`: variación esperada del valor a 7 y 14 días, aprendida de
       `market_snapshot` (tendencia, puntos recientes, titularidad, calendario).
-- [ ] Valoración de un jugador = puntos esperados en las próximas N jornadas
+- [x] Valoración de un jugador = puntos esperados en las próximas N jornadas
       × valor de un punto (incluida la bonificación) + revalorización esperada
       − precio. Comparada siempre contra el titular al que sustituiría.
-- [ ] Puja recomendada: distribución de pujas ganadoras de la liga (de
+- [x] Puja recomendada: distribución de pujas ganadoras de la liga (de
       `league_events`) por rango de valor; tres niveles (ajustada, probable, segura).
-- [ ] Cláusulas ofensivas: jugadores rivales cuya cláusula es menor que su
+- [x] Cláusulas ofensivas: jugadores rivales cuya cláusula es menor que su
       valoración y cabe en caja, respetando saldo ≥ 0 al inicio de jornada.
-- [ ] Cláusulas defensivas: jugadores propios expuestos = cláusula asequible para
+- [x] Cláusulas defensivas: jugadores propios expuestos = cláusula asequible para
       algún rival según su saldo. Decidir subida con la fórmula de coste de §2.4.
-- [ ] Ventas: jugadores con caída de valor esperada y bajo aporte de puntos.
-- [ ] Informe diario matinal: mercado del día ordenado por valoración, alertas de
+      *Pendiente: el estimador de saldos rivales aún no cuadra con el propio
+      (+29,5 M€); hasta que lo haga, el informe solo lista las cláusulas más
+      bajas. Ver docs/market.md.*
+- [x] Ventas: jugadores con caída de valor esperada y bajo aporte de puntos.
+- [x] Informe diario matinal: mercado del día ordenado por valoración, alertas de
       cláusulas, movimientos de rivales desde ayer.
 
 **Aceptación:** informe diario durante dos semanas; toda recomendación queda en

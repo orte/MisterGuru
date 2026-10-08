@@ -432,6 +432,80 @@ def match_stats_row(pgw_data: object) -> MatchStatsRow | None:
     )
 
 
+_MONTHS = {
+    "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6, "jul": 7, "ago": 8,
+    "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dic": 12,
+}  # fmt: skip
+
+
+def parse_spanish_date(text: str) -> date | None:
+    """«8 oct 2025» → date(2025, 10, 8)."""
+    parts = text.replace(".", "").split()
+    if len(parts) != 3 or not parts[0].isdigit() or not parts[2].isdigit():
+        return None
+    month = _MONTHS.get(parts[1].lower())
+    if month is None:
+        return None
+    try:
+        return date(int(parts[2]), month, int(parts[0]))
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
+class ValueRow(Row):
+    player_id: int
+    value_date: date
+    value: int
+    source: str
+
+
+def value_history(player_data: object) -> list[ValueRow]:
+    """Serie diaria de valor (`values_chart`) de /ajax/sw/players."""
+    d = _require(player_data, "players")
+    pid = int(d.get("id") or d["player"]["id"])
+    rows: dict[date, ValueRow] = {}
+    for point in (d.get("values_chart") or {}).get("points") or []:
+        day = parse_spanish_date(str(point.get("date", "")))
+        value = _int(point.get("value"))
+        if day is not None and value is not None:
+            rows[day] = ValueRow(pid, day, value, "mister_chart")
+    return sorted(rows.values(), key=lambda r: r.value_date)
+
+
+def owner_events(player_data: object, community_id: int) -> list[LeagueEventRow]:
+    """Historial de traspasos del jugador en la liga (`owners` de /ajax/sw/players).
+
+    Mismo espacio de ids que `id_transfer` del feed (clave `transfer:<id>`), pero
+    llega hasta el inicio de temporada; el feed solo da unas tres semanas. Solo
+    trae la fecha: se fija a mediodía (hora de Madrid).
+    """
+    d = _require(player_data, "players")
+    pid = int(d.get("id") or d["player"]["id"])
+    rows: list[LeagueEventRow] = []
+    for o in d.get("owners") or []:
+        day = parse_spanish_date(str(o.get("date", "")))
+        tid = _int(o.get("id"))
+        if day is None or tid is None:
+            continue
+        rows.append(
+            LeagueEventRow(
+                event_key=f"transfer:{tid}",
+                community_id=community_id,
+                feed_card_id=0,
+                category="transfer",
+                event_type=o.get("type"),
+                occurred_at=datetime(day.year, day.month, day.day, 12, tzinfo=MADRID),
+                player_id=pid,
+                from_manager_id=_int(o.get("id_uc_from")) or None,
+                to_manager_id=_int(o.get("id_uc_to")) or None,
+                price=_int(o.get("price")),
+                payload=json.dumps({**o, "_source": "owners"}, ensure_ascii=False),
+            )
+        )
+    return rows
+
+
 # -- /ajax/sw/users --------------------------------------------------------------
 
 

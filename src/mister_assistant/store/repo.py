@@ -112,6 +112,9 @@ def insert_rows(
         return 0
     dicts = [r.as_dict() for r in rows]
     cols = list(dicts[0])
+    # Un upsert no puede tocar la misma fila dos veces en una sentencia: se queda
+    # la última aparición de cada clave.
+    dicts = list({tuple(d[c] for c in conflict): d for d in dicts}.values())
     jcols = set(json_columns)
     values = [
         tuple(
@@ -119,12 +122,11 @@ def insert_rows(
         )
         for d in dicts
     ]
-    stmt = sql.SQL("insert into {} ({}) values ({}) on conflict ({}) ").format(
-        sql.Identifier(table),
-        sql.SQL(", ").join(map(sql.Identifier, cols)),
-        sql.SQL(", ").join(sql.Placeholder() * len(cols)),
-        sql.SQL(", ").join(map(sql.Identifier, conflict)),
+    head = sql.SQL("insert into {} ({}) values ").format(
+        sql.Identifier(table), sql.SQL(", ").join(map(sql.Identifier, cols))
     )
+    row_ph = sql.SQL("({})").format(sql.SQL(", ").join(sql.Placeholder() * len(cols)))
+    tail = sql.SQL(" on conflict ({}) ").format(sql.SQL(", ").join(map(sql.Identifier, conflict)))
     updatable = [c for c in cols if c not in conflict]
     if update and updatable:
         sets: list[sql.Composable] = [
@@ -135,14 +137,23 @@ def insert_rows(
             sets.append(sql.SQL("updated_at = now()"))
         if table in ("player_gameweek", "match_stats"):
             sets.append(sql.SQL("captured_at = now()"))
-        stmt += sql.SQL("do update set ") + sql.SQL(", ").join(sets)
+        tail += sql.SQL("do update set ") + sql.SQL(", ").join(sets)
     else:
-        stmt += sql.SQL("do nothing")
+        tail += sql.SQL("do nothing")
+    # Varias filas por sentencia: con Supabase cada viaje cuesta decenas de ms, y
+    # executemany hace uno por fila.
+    chunk = max(1, min(INSERT_BATCH, 30_000 // len(cols)))
+    total = 0
     with conn.cursor() as cur:
-        cur.executemany(stmt, values)
-        return cur.rowcount if cur.rowcount >= 0 else len(values)
+        for i in range(0, len(values), chunk):
+            part = values[i : i + chunk]
+            stmt = head + sql.SQL(", ").join([row_ph] * len(part)) + tail
+            cur.execute(stmt, [v for row in part for v in row])
+            total += cur.rowcount if cur.rowcount >= 0 else len(part)
+    return total
 
 
+INSERT_BATCH = 500
 _TABLES_WITH_UPDATED_AT = frozenset({"players", "managers", "teams", "gameweeks", "fixtures"})
 
 

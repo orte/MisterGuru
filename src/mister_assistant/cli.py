@@ -48,6 +48,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _derive_match_stats(settings)
             case "identity":
                 return _identity(settings, args)
+            case "backfill-values":
+                return _backfill_values(settings, args.max_requests)
+            case "backfill-feed":
+                return _backfill_feed(settings, args.max_pages)
+            case "market-report":
+                return _market_report(settings, dry_run=args.dry_run, force=args.force)
             case "gameweek-report":
                 return _gameweek_report(
                     settings, auto=args.auto, dry_run=args.dry_run, refresh=not args.no_refresh
@@ -80,6 +86,13 @@ def _parser() -> argparse.ArgumentParser:
     lin.add_argument("--skip-mister", action="store_true", help="Solo Fútbol Fantasy")
     sub.add_parser("capture-odds", help="Cuotas 1X2 y goles (The Odds API)")
     sub.add_parser("derive-match-stats", help="Rellena match_stats desde lo crudo (sin red)")
+    bv = sub.add_parser("backfill-values", help="Serie diaria de valor de un año por jugador")
+    bv.add_argument("--max-requests", type=int, default=None)
+    bf = sub.add_parser("backfill-feed", help="Feed de la liga completo (una vez)")
+    bf.add_argument("--max-pages", type=int, default=80)
+    mrep = sub.add_parser("market-report", help="Informe matinal de mercado y cláusulas")
+    mrep.add_argument("--dry-run", action="store_true", help="Imprime sin enviar ni guardar")
+    mrep.add_argument("--force", action="store_true", help="Repite aunque ya se enviara hoy")
     rep = sub.add_parser("gameweek-report", help="Predicciones, once recomendado e informe")
     rep.add_argument(
         "--auto", action="store_true", help="Solo en las ventanas víspera / 3 h antes, una vez"
@@ -251,6 +264,49 @@ def _identity(settings: Settings, args: argparse.Namespace) -> int:
                 for c in im.conflicts:
                     print(f"  ✗ {c}")
     return EXIT_OK
+
+
+def _backfill_values(settings: Settings, max_requests: int | None) -> int:
+    from mister_assistant.jobs.backfill_values import run_backfill_values
+    from mister_assistant.sources.mister import MisterClient
+    from mister_assistant.store.db import connect
+
+    dsn = settings.database_dsn()
+    with connect(dsn) as conn, MisterClient(settings) as client:
+        result = run_backfill_values(conn, client, max_requests=max_requests)
+    return _report_job(settings, result, notify_partial=False)
+
+
+def _backfill_feed(settings: Settings, max_pages: int) -> int:
+    from mister_assistant.jobs.backfill_feed import run_backfill_feed
+    from mister_assistant.sources.mister import MisterClient
+    from mister_assistant.store.db import connect
+
+    dsn = settings.database_dsn()
+    with connect(dsn) as conn, MisterClient(settings) as client:
+        result = run_backfill_feed(conn, client, max_pages=max_pages)
+    return _report_job(settings, result, notify_partial=False)
+
+
+def _market_report(settings: Settings, *, dry_run: bool, force: bool) -> int:
+    from mister_assistant.jobs.market_report import build_market_report, save_recommendations
+    from mister_assistant.store.db import connect
+
+    with connect(settings.database_dsn()) as conn:
+        report = build_market_report(conn)
+        sent = conn.execute(
+            "select 1 from recommendations where report_date = %s limit 1", (report.report_date,)
+        ).fetchone()
+        print(report.message)
+        if dry_run:
+            return EXIT_OK
+        if sent and not force:
+            print("Ya se envió el informe de mercado de hoy (usa --force para repetir)")
+            return EXIT_OK
+        with conn.transaction():
+            n = save_recommendations(conn, report)
+        print(f"{n} recomendaciones guardadas")
+        return EXIT_OK if _send(settings, report.message) else EXIT_FAILED
 
 
 def _gameweek_report(settings: Settings, *, auto: bool, dry_run: bool, refresh: bool) -> int:

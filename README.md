@@ -5,7 +5,7 @@ completo está en [PLAN.md](PLAN.md).
 
 ## Estado
 
-**Fase 3 — puntos esperados v0, once óptimo e informe de jornada.**
+**Fase 4 — mercado y cláusulas.**
 
 - Fase 0: cliente de Mister de solo lectura con lista blanca de rutas
   (`sources/mister.py`), [catálogo de endpoints](docs/mister-endpoints.md),
@@ -23,6 +23,9 @@ completo está en [PLAN.md](PLAN.md).
 - Fase 3 ([modelo v0](docs/model-v0.md)): minutos y puntos esperados por
   jugador, once óptimo con dudas y recambios, e informe por Telegram la víspera
   y 3 h antes del primer partido (`report.yml`).
+- Fase 4 ([mercado](docs/market.md)): serie diaria de valores, modelo de
+  variación de valor, fichajes y pujas, cláusulas ofensivas y defensivas,
+  ventas e informe matinal de mercado.
 
 ## Puesta en marcha
 
@@ -51,6 +54,9 @@ Códigos de salida: `0` OK, `1` error, `2` faltan variables, `3` sesión caducad
 | `capture-lineups [--skip-mister]` | Alineaciones probables de Mister y Fútbol Fantasy (12 peticiones) |
 | `capture-odds` | Cuotas 1X2 y goles (1 petición, 2 créditos). Sin `ODDS_API_KEY` no hace nada |
 | `derive-match-stats` | Rellena `match_stats` desde lo crudo (sin red) |
+| `backfill-values [--max-requests N]` | Serie de valor de un año e historial de traspasos por jugador (una vez; ~550 peticiones) |
+| `backfill-feed [--max-pages N]` | Feed de la liga hasta donde lo sirve Mister (~3 semanas) |
+| `market-report [--dry-run] [--force]` | Informe de mercado y cláusulas (sin peticiones) |
 | `gameweek-report [--auto] [--dry-run] [--no-refresh]` | Predicciones, once recomendado e informe por Telegram |
 | `identity coverage [--recent N]` | Cobertura del emparejado con Fútbol Fantasy |
 | `identity rematch` | Reintenta la cola de revisión (sin red) |

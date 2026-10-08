@@ -146,6 +146,7 @@ def _user(
     repo.upsert_players(conn, snap.players)
     repo.insert_rows(conn, "manager_snapshot", [manager_snap], ["manager_id", "snapshot_date"])
     repo.insert_rows(conn, "squad_snapshot", snap.squad, ["player_id", "snapshot_date"])
+    _values(conn, run_date, [(s.player_id, s.market_value) for s in snap.squad])
     result.stats["mánagers"] = result.stats.get("mánagers", 0) + 1
     result.stats["jugadores en plantillas"] = result.stats.get("jugadores en plantillas", 0) + len(
         snap.squad
@@ -179,6 +180,12 @@ def _standing_only(
     result.stats["mánagers sin plantilla"] = result.stats.get("mánagers sin plantilla", 0) + 1
 
 
+def _values(conn: Conn, run_date: date, values: list[tuple[int, int | None]]) -> None:
+    """Valor del día en player_value_daily (no pisa el de la serie de Mister)."""
+    rows = [nz.ValueRow(pid, run_date, v, "snapshot") for pid, v in values if v is not None]
+    repo.insert_rows(conn, "player_value_daily", rows, ["player_id", "value_date"])
+
+
 def _market(conn: Conn, client: MisterClient, run_date: date, result: JobResult) -> None:
     resp = client.page("market")
     repo.save_raw(conn, resp, run_date)
@@ -187,6 +194,7 @@ def _market(conn: Conn, client: MisterClient, run_date: date, result: JobResult)
     repo.insert_rows(
         conn, "market_snapshot", nz.market_rows(rows, run_date), ["player_id", "snapshot_date"]
     )
+    _values(conn, run_date, [(r.player_id, r.market_value) for r in rows])
     result.stats["en mercado"] = len(rows)
 
 
