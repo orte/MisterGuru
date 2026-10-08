@@ -52,6 +52,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _backfill_values(settings, args.max_requests)
             case "backfill-feed":
                 return _backfill_feed(settings, args.max_pages)
+            case "backtest":
+                return _backtest(settings, save=args.save)
+            case "weekly-eval":
+                return _weekly_eval(settings, dry_run=args.dry_run)
             case "market-report":
                 return _market_report(settings, dry_run=args.dry_run, force=args.force)
             case "gameweek-report":
@@ -90,6 +94,10 @@ def _parser() -> argparse.ArgumentParser:
     bv.add_argument("--max-requests", type=int, default=None)
     bf = sub.add_parser("backfill-feed", help="Feed de la liga completo (una vez)")
     bf.add_argument("--max-pages", type=int, default=80)
+    btp = sub.add_parser("backtest", help="Backtest «como si» de v0 y v1 (sin red)")
+    btp.add_argument("--save", action="store_true", help="Guarda el resultado en evaluations")
+    wk = sub.add_parser("weekly-eval", help="Evaluación semanal de predicciones y mercado")
+    wk.add_argument("--dry-run", action="store_true", help="Imprime sin guardar ni enviar")
     mrep = sub.add_parser("market-report", help="Informe matinal de mercado y cláusulas")
     mrep.add_argument("--dry-run", action="store_true", help="Imprime sin enviar ni guardar")
     mrep.add_argument("--force", action="store_true", help="Repite aunque ya se enviara hoy")
@@ -286,6 +294,46 @@ def _backfill_feed(settings: Settings, max_pages: int) -> int:
     with connect(dsn) as conn, MisterClient(settings) as client:
         result = run_backfill_feed(conn, client, max_pages=max_pages)
     return _report_job(settings, result, notify_partial=False)
+
+
+def _backtest(settings: Settings, *, save: bool) -> int:
+    from dataclasses import asdict
+
+    from psycopg.types.json import Jsonb
+
+    from mister_assistant.evals.backtest import format_backtest, run_backtest
+    from mister_assistant.store.db import connect
+
+    with connect(settings.database_dsn()) as conn:
+        report = run_backtest(conn)
+        text = format_backtest(report)
+        print(text)
+        cmp = report.compare()
+        if save and cmp is not None:
+            conn.execute(
+                "insert into evaluations (kind, model, metrics, summary)"
+                " values ('backtest', 'v0-v1', %s, %s)",
+                (Jsonb(asdict(cmp)), text),
+            )
+    return EXIT_OK
+
+
+def _weekly_eval(settings: Settings, *, dry_run: bool) -> int:
+    from mister_assistant.evals.weekly import build_weekly, save_weekly
+    from mister_assistant.store.db import connect
+
+    with connect(settings.database_dsn()) as conn:
+        if dry_run:
+            # La auditoría escribe `outcome`: en seco se deshace al terminar.
+            with conn.transaction(force_rollback=True):
+                report = build_weekly(conn)
+            print(report.message)
+            return EXIT_OK
+        with conn.transaction():
+            report = build_weekly(conn)
+            save_weekly(conn, report)
+    print(report.message)
+    return EXIT_OK if _send(settings, report.message) else EXIT_FAILED
 
 
 def _market_report(settings: Settings, *, dry_run: bool, force: bool) -> int:

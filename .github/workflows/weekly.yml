@@ -1,0 +1,36 @@
+name: Evaluación semanal
+
+on:
+  schedule:
+    # Martes 09:30 UTC: después del snapshot diario (06:30), que ya ha cargado la
+    # jornada del fin de semana.
+    - cron: "30 9 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --no-dev
+      - name: Migraciones
+        run: uv run mister-assistant migrate
+      - name: Evaluación
+        # Sin peticiones a Mister: solo la BD.
+        run: uv run mister-assistant weekly-eval
+      - name: Avisar del fallo
+        if: failure()
+        run: >-
+          uv run mister-assistant notify
+          "❌ Falló la evaluación semanal: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

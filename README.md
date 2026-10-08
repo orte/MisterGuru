@@ -5,7 +5,7 @@ completo está en [PLAN.md](PLAN.md).
 
 ## Estado
 
-**Fase 4 — mercado y cláusulas.**
+**Fase 5 — evaluación y modelo entrenado.**
 
 - Fase 0: cliente de Mister de solo lectura con lista blanca de rutas
   (`sources/mister.py`), [catálogo de endpoints](docs/mister-endpoints.md),
@@ -26,6 +26,9 @@ completo está en [PLAN.md](PLAN.md).
 - Fase 4 ([mercado](docs/market.md)): serie diaria de valores, modelo de
   variación de valor, fichajes y pujas, cláusulas ofensivas y defensivas,
   ventas e informe matinal de mercado.
+- Fase 5 ([evaluación](docs/evaluation.md)): backtest «como si» de v0 y v1
+  (LightGBM), evaluación semanal de lo predicho y recomendado, y auditoría del
+  mercado (`weekly.yml`).
 
 ## Puesta en marcha
 
@@ -56,6 +59,8 @@ Códigos de salida: `0` OK, `1` error, `2` faltan variables, `3` sesión caducad
 | `derive-match-stats` | Rellena `match_stats` desde lo crudo (sin red) |
 | `backfill-values [--max-requests N]` | Serie de valor de un año e historial de traspasos por jugador (una vez; ~550 peticiones) |
 | `backfill-feed [--max-pages N]` | Feed de la liga hasta donde lo sirve Mister (~3 semanas) |
+| `backtest [--save]` | Backtest de v0 frente a v1 y once recomendado frente al puesto (sin red) |
+| `weekly-eval [--dry-run]` | Evaluación semanal de predicciones y recomendaciones, por Telegram |
 | `market-report [--dry-run] [--force]` | Informe de mercado y cláusulas (sin peticiones) |
 | `gameweek-report [--auto] [--dry-run] [--no-refresh]` | Predicciones, once recomendado e informe por Telegram |
 | `identity coverage [--recent N]` | Cobertura del emparejado con Fútbol Fantasy |

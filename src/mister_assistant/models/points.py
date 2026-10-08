@@ -69,13 +69,20 @@ def xg90(f: PlayerFeatures, priors: LeaguePriors) -> float:
 
 
 def forecast_points(
-    f: PlayerFeatures, priors: LeaguePriors, *, simulations: int = SIMULATIONS
+    f: PlayerFeatures,
+    priors: LeaguePriors,
+    *,
+    simulations: int = SIMULATIONS,
+    base_start: float | None = None,
 ) -> PointsForecast:
+    """Puntos esperados. `base_start` sustituye la Mixta sin bonus del titular
+    (la pone el modelo v1); minutos, bonus de gol y simulación son los mismos."""
     mins = forecast_minutes(f, priors)
     probs, from_odds = result_probs(f, priors)
     table = priors.base_by_result[f.position]
     level = skill(f, priors)
-    base_start = level + sum(probs[r] * table[r] for r in RESULTS)
+    if base_start is None:
+        base_start = level + sum(probs[r] * table[r] for r in RESULTS)
     goal_factor = team_goal_factor(f, probs, priors)
     lam_start = xg90(f, priors) * mins.exp_minutes_start / 90 * goal_factor
     goal_pts = GOAL_POINTS[f.position]

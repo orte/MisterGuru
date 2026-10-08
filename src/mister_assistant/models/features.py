@@ -31,6 +31,8 @@ class Appearance:
     points_mix: int | None
     base_mix: float | None  # Mixta sin el bonus de eventos
     result: str  # V/E/D para su equipo
+    # Notas por fuente (AS, Marca, MD, SofaScore); None = S.C. o no jugó
+    ratings: tuple[int | None, int | None, int | None, float | None] = (None, None, None, None)
 
 
 @dataclass(frozen=True)
@@ -108,13 +110,21 @@ def _result(team_id: int, home: int, gh: int | None, ga: int | None) -> str | No
     return "V" if mine > theirs else "E" if mine == theirs else "D"
 
 
-def load_priors(conn: Conn) -> LeaguePriors:
+# Sin límite: todas las jornadas. En el backtest, solo las anteriores a la objetivo.
+NO_LIMIT = 10_000
+
+
+def load_priors(conn: Conn, before_number: int | None = None) -> LeaguePriors:
+    """Parámetros de la liga. Con `before_number`, solo con jornadas anteriores."""
+    limit = before_number or NO_LIMIT
     rows = conn.execute(
         "select p.position, p.team_id, p.minutes, p.points_mix, p.sub_in_minute, p.goals,"
         " p.penalty_goals, p.double_yellow, p.red_cards, f.home_team_id, f.goals_home,"
         " f.goals_away"
         " from player_gameweek p join fixtures f on f.id = p.match_id"
-        " where p.points_mix is not null and p.position between 1 and 4"
+        " join gameweeks g on g.id = p.gameweek_id"
+        " where p.points_mix is not null and p.position between 1 and 4 and g.number < %s",
+        (limit,),
     ).fetchall()
     if len(rows) < 200:
         return DEFAULT_PRIORS
@@ -143,10 +153,13 @@ def load_priors(conn: Conn) -> LeaguePriors:
     xg_rows = conn.execute(
         "select pg.position, sum(ms.xg), sum(ms.minutes) from match_stats ms"
         " join player_gameweek pg on pg.player_id = ms.player_id and pg.match_id = ms.fixture_id"
-        " group by 1"
+        " join gameweeks g on g.id = pg.gameweek_id where g.number < %s group by 1",
+        (limit,),
     ).fetchall()
     goals_row = conn.execute(
-        "select avg(goals_home + goals_away) / 2.0 from fixtures where status = 'played'"
+        "select avg(f.goals_home + f.goals_away) / 2.0 from fixtures f"
+        " join gameweeks g on g.id = f.gameweek_id where f.status = 'played' and g.number < %s",
+        (limit,),
     ).fetchone()
     d = DEFAULT_PRIORS
 
@@ -195,14 +208,20 @@ def poisson_total_from_over(p_over_25: float) -> float:
     return (lo + hi) / 2
 
 
-def load_fixture_contexts(conn: Conn, gameweek_id: int) -> dict[int, FixtureContext]:
+def load_fixture_contexts(
+    conn: Conn, gameweek_id: int, *, backtest: bool = False
+) -> dict[int, FixtureContext]:
+    """Partidos de la jornada con sus cuotas. En el backtest: todos, y sin cuotas."""
     fixtures = conn.execute(
         "select id, home_team_id, away_team_id from fixtures"
-        " where gameweek_id = %s and status is distinct from 'played'",
-        (gameweek_id,),
+        " where gameweek_id = %s and (%s or status is distinct from 'played')",
+        (gameweek_id, backtest),
     ).fetchall()
     out: dict[int, FixtureContext] = {}
     for fid, home, away in fixtures:
+        if backtest:
+            out[int(fid)] = FixtureContext(int(fid), int(home), int(away))
+            continue
         odds = conn.execute(
             "select market, outcome, point, prob_fair from odds where fixture_id = %s"
             " and captured_at = (select max(captured_at) from odds where fixture_id = %s)",
@@ -229,9 +248,18 @@ def load_fixture_contexts(conn: Conn, gameweek_id: int) -> dict[int, FixtureCont
     return out
 
 
-def load_player_features(conn: Conn, gameweek_id: int) -> list[PlayerFeatures]:
-    """Jugadores de los equipos que juegan la jornada, con su historial y alineaciones."""
-    contexts = load_fixture_contexts(conn, gameweek_id)
+def load_player_features(
+    conn: Conn, gameweek_id: int, *, backtest: bool = False
+) -> list[PlayerFeatures]:
+    """Jugadores de los equipos que juegan la jornada, con su historial y alineaciones.
+
+    `backtest=True` reconstruye lo que se sabía antes de una jornada ya jugada:
+    historial y xG solo de jornadas anteriores, y sin Fútbol Fantasy, once de
+    Mister ni cuotas (no se capturaban entonces).
+    """
+    target = conn.execute("select number from gameweeks where id = %s", (gameweek_id,)).fetchone()
+    limit = int(target[0]) if backtest and target else NO_LIMIT
+    contexts = load_fixture_contexts(conn, gameweek_id, backtest=backtest)
     team_fixture: dict[int, FixtureContext] = {}
     for ctx in contexts.values():
         team_fixture[ctx.home_team_id] = ctx
@@ -241,7 +269,8 @@ def load_player_features(conn: Conn, gameweek_id: int) -> list[PlayerFeatures]:
     for fid, number, home, away, gh, ga in conn.execute(
         "select f.id, g.number, f.home_team_id, f.away_team_id, f.goals_home, f.goals_away"
         " from fixtures f join gameweeks g on g.id = f.gameweek_id"
-        " where f.status = 'played' order by g.number desc, f.kickoff_at desc"
+        " where f.status = 'played' and g.number < %s order by g.number desc, f.kickoff_at desc",
+        (limit,),
     ):
         for team in (home, away):
             if len(team_matches[team]) < HISTORY_MATCHES:
@@ -250,13 +279,18 @@ def load_player_features(conn: Conn, gameweek_id: int) -> list[PlayerFeatures]:
     rows_by_player: dict[int, dict[int, tuple[Any, ...]]] = defaultdict(dict)
     for r in conn.execute(
         "select player_id, match_id, minutes, points_mix, sub_in_minute, goals, penalty_goals,"
-        " double_yellow, red_cards from player_gameweek where match_id is not null"
+        " double_yellow, red_cards, rating_as, rating_marca, rating_md, rating_sofascore"
+        " from player_gameweek where match_id is not null"
     ):
         rows_by_player[int(r[0])][int(r[1])] = r
 
     xg = {
         int(r[0]): (float(r[1]), int(r[2] or 0))
-        for r in conn.execute("select player_id, sum(xg), sum(minutes) from match_stats group by 1")
+        for r in conn.execute(
+            "select ms.player_id, sum(ms.xg), sum(ms.minutes) from match_stats ms"
+            " join gameweeks g on g.id = ms.gameweek_id where g.number < %s group by 1",
+            (limit,),
+        )
     }
     ff = {
         int(r[0]): (float(r[1]) if r[1] is not None else None, r[2], r[3])
@@ -264,9 +298,9 @@ def load_player_features(conn: Conn, gameweek_id: int) -> list[PlayerFeatures]:
             "select distinct on (x.player_id) x.player_id, l.probability, l.role, l.injury_code"
             " from lineup_forecast l join player_xref x"
             "  on x.source = l.source and x.external_id = l.external_id"
-            " where l.source = 'futbolfantasy' and l.gameweek_id = %s"
+            " where l.source = 'futbolfantasy' and l.gameweek_id = %s and not %s"
             " order by x.player_id, l.captured_at desc",
-            (gameweek_id,),
+            (gameweek_id, backtest),
         )
     }
     mister_capture = conn.execute(
@@ -274,7 +308,7 @@ def load_player_features(conn: Conn, gameweek_id: int) -> list[PlayerFeatures]:
         (gameweek_id,),
     ).fetchone()
     mister_xi: set[int] | None = None
-    if mister_capture and mister_capture[0] is not None:
+    if mister_capture and mister_capture[0] is not None and not backtest:
         mister_xi = {
             int(r[0])
             for r in conn.execute(
@@ -298,9 +332,12 @@ def load_player_features(conn: Conn, gameweek_id: int) -> list[PlayerFeatures]:
             if row is None or not row[2]:
                 history.append(Appearance(number, False, False, 0, None, None, res))
                 continue
-            _, _, minutes, mix, sub_in, g, pg, dy, red = row
+            _, _, minutes, mix, sub_in, g, pg, dy, red, r_as, r_marca, r_md, r_ss = row
             base = float(mix) - extras(int(pos), g, pg, dy, red) if mix is not None else None
-            history.append(Appearance(number, True, sub_in is None, int(minutes), mix, base, res))
+            ratings = (r_as, r_marca, r_md, float(r_ss) if r_ss is not None else None)
+            history.append(
+                Appearance(number, True, sub_in is None, int(minutes), mix, base, res, ratings)
+            )
         f = ff.get(int(pid))
         x = xg.get(int(pid), (0.0, 0))
         out.append(

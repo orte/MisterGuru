@@ -345,15 +345,17 @@ seguidas y el once propuesto es siempre válido en la app.
 
 ### Fase 5 — Evaluación y modelo entrenado
 
-- [ ] `evals/`: por jornada cerrada, error medio y sesgo de los puntos esperados,
+- [x] `evals/`: por jornada cerrada, error medio y sesgo de los puntos esperados,
       correlación de rangos, calibración de P(jugar) por tramos, y comparación de
       once recomendado vs once alineado vs once «los 11 más caros».
-- [ ] Auditoría de mercado: evolución de valor y puntos de lo recomendado comprar
+- [x] Auditoría de mercado: evolución de valor y puntos de lo recomendado comprar
       frente a lo recomendado evitar.
-- [ ] `models/points.py` v1: modelo ordinal para picas/estrellas por diario y
+- [x] `models/points.py` v1: modelo ordinal para picas/estrellas por diario y
       regresión para la nota SofaScore (LightGBM), con validación temporal.
       Solo sustituye a v0 si lo mejora en el backtest.
-- [ ] Resumen de evaluación semanal por Telegram.
+      *Backtest J4–J7 (2026-10-08): v1 mejora el error un 1,4 % pero elige
+      peores onces; se mantiene v0. Ver docs/evaluation.md.*
+- [x] Resumen de evaluación semanal por Telegram.
 
 **Aceptación:** existe un informe reproducible que dice si v1 mejora a v0 y si el
 once recomendado bate al alineado.
