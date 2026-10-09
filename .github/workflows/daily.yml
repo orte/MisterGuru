@@ -57,6 +57,10 @@ jobs:
         # Sin peticiones: usa lo que acaba de guardar el snapshot.
         run: uv run mister-assistant market-report
         continue-on-error: true
+      - name: Mercado libre
+        # ¿Merece la pena pujar por algún jugador libre? Sin peticiones.
+        run: uv run mister-assistant free-market-report
+        continue-on-error: true
       - name: Avisar del fallo
         if: failure()
         run: >-

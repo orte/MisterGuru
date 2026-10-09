@@ -105,6 +105,25 @@ plantilla inicial el error era de +29,5 M€. Pendiente de comprobar al cerrar l
 J8: que el premio por puesto va al revés (el 1º cobra 0) y si la J6, con un
 partido aplazado, ya se pagó.
 
+## Mercado libre (`free-market-report`)
+
+Un mensaje diario aparte, justo después del informe de mercado, que responde
+a una pregunta: **¿merece la pena pujar hoy por algún jugador libre?**
+
+- Solo jugadores libres: los que vende el propio juego (no los que pone a la
+  venta un rival) y cuyo plazo sigue abierto.
+- **Para puntuar**: mejora el once recomendado en al menos 1,5 puntos en 5
+  jornadas. Si varios entrarían por el mismo jugador, se avisa de que son
+  alternativas.
+- **Para revalorizar**: la subida esperada a 14 días supera en al menos
+  250.000 € al sobreprecio de la puja probable más el 2,5 % que se pierde al
+  revender. Es una previsión orientativa.
+- Cada candidato lleva las tres pujas, cuándo cierra y si cabe en el saldo (o
+  cuánto habría que vender antes de la jornada).
+- Si no hay ninguno, dice cuál se acerca más.
+- Cada candidato queda en `recommendations` como `puja`, con sus números y el
+  `run_id` de las predicciones.
+
 ## Ventas
 
 Jugadores propios que no están en el once ni entre los 4 primeros suplentes,

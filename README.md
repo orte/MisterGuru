@@ -67,6 +67,7 @@ Códigos de salida: `0` OK, `1` error, `2` faltan variables, `3` sesión caducad
 | `agent-eval` | Casos de prueba del agente con el modelo real (cuesta dinero de la API) |
 | `backtest [--save]` | Backtest de v0 frente a v1 y once recomendado frente al puesto (sin red) |
 | `weekly-eval [--dry-run]` | Evaluación semanal de predicciones y recomendaciones, por Telegram |
+| `free-market-report [--dry-run] [--force]` | ¿Merece la pena pujar hoy por algún jugador libre? (sin peticiones) |
 | `market-report [--dry-run] [--force]` | Informe de mercado y cláusulas (sin peticiones) |
 | `gameweek-report [--auto] [--dry-run] [--no-refresh]` | Predicciones, once recomendado e informe por Telegram |
 | `identity coverage [--recent N]` | Cobertura del emparejado con Fútbol Fantasy |

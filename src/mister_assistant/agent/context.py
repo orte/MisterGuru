@@ -74,7 +74,9 @@ def next_gameweek(conn: Conn) -> tuple[int, int, datetime] | None:
     return (int(row[0]), int(row[1]), row[2]) if row else None
 
 
-def ensure_run(conn: Conn, gameweek_id: int, first_kickoff: datetime) -> int:
+def ensure_run(
+    conn: Conn, gameweek_id: int, first_kickoff: datetime, trigger: str = "agente"
+) -> int:
     """Última ejecución reciente de la jornada; si no hay, se crea y se guarda."""
     row = conn.execute(
         "select id from prediction_runs where gameweek_id = %s and created_at > %s"
@@ -90,8 +92,8 @@ def ensure_run(conn: Conn, gameweek_id: int, first_kickoff: datetime) -> int:
         run = conn.execute(
             "insert into prediction_runs (gameweek_id, model_version, created_at,"
             " first_kickoff_at, before_kickoff, trigger, inputs)"
-            " values (%s, %s, %s, %s, %s, 'agente', %s) returning id",
-            (gameweek_id, MODEL_VERSION, now, first_kickoff, now < first_kickoff,
+            " values (%s, %s, %s, %s, %s, %s, %s) returning id",
+            (gameweek_id, MODEL_VERSION, now, first_kickoff, now < first_kickoff, trigger,
              Jsonb({"players": len(features)})),
         ).fetchone()  # fmt: skip
         assert run is not None
@@ -115,12 +117,12 @@ def ensure_run(conn: Conn, gameweek_id: int, first_kickoff: datetime) -> int:
     return run_id
 
 
-def load_snapshot(conn: Conn) -> Snapshot:
+def load_snapshot(conn: Conn, trigger: str = "agente") -> Snapshot:
     gw = next_gameweek(conn)
     if gw is None:
         raise ValueError("no hay ninguna jornada próxima en la BD")
     gw_id, number, kickoff = gw
-    run_id = ensure_run(conn, gw_id, kickoff)
+    run_id = ensure_run(conn, gw_id, kickoff, trigger)
     preds = {
         int(r[0]): PlayerPrediction(
             int(r[0]),

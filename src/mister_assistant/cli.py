@@ -63,6 +63,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _bot(settings)
             case "agent-eval":
                 return _agent_eval(settings)
+            case "free-market-report":
+                return _free_market_report(settings, dry_run=args.dry_run, force=args.force)
             case "market-report":
                 return _market_report(settings, dry_run=args.dry_run, force=args.force)
             case "gameweek-report":
@@ -109,6 +111,9 @@ def _parser() -> argparse.ArgumentParser:
     askp.add_argument("question", nargs="+")
     sub.add_parser("bot", help="Agente por Telegram (proceso que se queda escuchando)")
     sub.add_parser("agent-eval", help="Casos de prueba del agente con el modelo real (cuesta)")
+    fm = sub.add_parser("free-market-report", help="¿Merece la pena pujar por algún libre?")
+    fm.add_argument("--dry-run", action="store_true", help="Imprime sin enviar ni guardar")
+    fm.add_argument("--force", action="store_true", help="Repite aunque ya se enviara hoy")
     mrep = sub.add_parser("market-report", help="Informe matinal de mercado y cláusulas")
     mrep.add_argument("--dry-run", action="store_true", help="Imprime sin enviar ni guardar")
     mrep.add_argument("--force", action="store_true", help="Repite aunque ya se enviara hoy")
@@ -409,6 +414,23 @@ def _agent_eval(settings: Settings) -> int:
     results = run_cases(lambda: Agent(connect(dsn), client, owns_conn=True))
     print(format_results(results))
     return EXIT_OK if all(r.passed for r in results) else EXIT_FAILED
+
+
+def _free_market_report(settings: Settings, *, dry_run: bool, force: bool) -> int:
+    from mister_assistant.jobs import free_market_report as fmr
+    from mister_assistant.store.db import connect
+
+    with connect(settings.database_dsn()) as conn:
+        report = fmr.build_free_market_report(conn)
+        print(report.message)
+        if dry_run:
+            return EXIT_OK
+        if fmr.already_sent(conn, report.report_date) and not force:
+            print("Ya se envió el de hoy (usa --force para repetir)")
+            return EXIT_OK
+        with conn.transaction():
+            fmr.save(conn, report)
+        return EXIT_OK if _send(settings, report.message) else EXIT_FAILED
 
 
 def _market_report(settings: Settings, *, dry_run: bool, force: bool) -> int:
