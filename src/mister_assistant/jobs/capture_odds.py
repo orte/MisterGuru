@@ -58,8 +58,8 @@ def _capture(
     )
     teams = idstore.load_teams(conn)
     fixtures = conn.execute(
-        "select id, home_team_id, away_team_id, kickoff_at from fixtures"
-        " where kickoff_at > now() - interval '1 day'"
+        "select id, home_team_id, away_team_id, kickoff_at from fixtures where kickoff_at > %s",
+        (captured_at - timedelta(days=1),),
     ).fetchall()
     rows: list[tuple[Any, ...]] = []
     unmatched = 0

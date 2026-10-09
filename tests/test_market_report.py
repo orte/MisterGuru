@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import psycopg
@@ -12,8 +12,9 @@ from mister_assistant.decide.balances import estimate_balances
 from mister_assistant.jobs.market_report import build_market_report, save_recommendations
 
 Conn = psycopg.Connection[tuple[Any, ...]]
-NOW = datetime(2026, 10, 8, 7, 0, tzinfo=UTC)
-TODAY = date(2026, 10, 8)
+# Relativas al reloj: el código busca la próxima jornada con now() de Postgres.
+NOW = datetime.now(UTC).replace(microsecond=0)
+TODAY = NOW.date()
 ME, RIVAL = 1, 2
 KICKOFF = NOW + timedelta(days=1)
 # 50 M − 13 iniciales × 5 M + 30 pts × 100 k + 200 k (2º de la jornada)
