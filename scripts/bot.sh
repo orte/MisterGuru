@@ -10,11 +10,16 @@ mkdir -p logs
 
 case "${1:-}" in
   --stop)
-    if [[ -f $PIDFILE ]] && kill "$(cat "$PIDFILE")" 2>/dev/null; then
-      echo "Bot parado"; rm -f "$PIDFILE"
-    else
-      echo "No había ningún bot en marcha"
+    if [[ ! -f $PIDFILE ]] || ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+      echo "No había ningún bot en marcha"; rm -f "$PIDFILE"; exit 0
     fi
+    # Al grupo entero (el bucle y el bot), y se espera a que muera de verdad:
+    # dos bots leyendo a la vez dan 409 en Telegram.
+    pid=$(cat "$PIDFILE")
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid"
+    for _ in $(seq 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+    kill -0 "$pid" 2>/dev/null && kill -KILL -- "-$pid" 2>/dev/null
+    rm -f "$PIDFILE"; echo "Bot parado"
     exit 0 ;;
   --detach)
     if [[ -f $PIDFILE ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
@@ -26,10 +31,15 @@ case "${1:-}" in
     exit 0 ;;
 esac
 
-trap 'kill 0' INT TERM
+# El bot va en segundo plano y se espera con `wait`: así la señal de parada se
+# atiende al momento, sin esperar a que acabe la consulta larga a Telegram.
+child=""
+trap '[[ -n $child ]] && kill "$child" 2>/dev/null; exit 0' INT TERM
 while true; do
   echo "[$(date -Is)] arrancando bot"
-  uv run mister-assistant bot || true
+  uv run mister-assistant bot &
+  child=$!
+  wait "$child" || true
   echo "[$(date -Is)] el bot ha terminado; relanzo en 15 s"
   sleep 15
 done

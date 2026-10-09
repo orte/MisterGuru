@@ -53,3 +53,20 @@ def test_saved_once_per_day(db: Conn) -> None:
     assert fmr.already_sent(db, report.report_date)
     row = db.execute("select kind, numbers->>'motivo' from recommendations limit 1").fetchone()
     assert row == ("puja", "puntos")
+
+
+def test_player_arriving_after_kickoff_counts_from_next_gameweek(db: Conn) -> None:
+    from test_market_report import KICKOFF
+
+    seed(db)
+    with db.transaction():
+        db.execute(
+            "update market_snapshot set sale_ends_at = %s where player_id = 600",
+            (KICKOFF + timedelta(hours=6),),
+        )
+    report = fmr.build_free_market_report(db, now=NOW)
+    (p,) = [p for p in report.worth_it if p.player_id == 600]
+    assert p.misses_next and p.counted_gameweeks == 4
+    assert "llega tras el primer partido" in report.message
+    # Un nombre con punto («A. Oroz») no se toca al formatear los decimales.
+    assert ", " not in fmr._pts(2.5) and fmr._pts(2.5) == "2,5"

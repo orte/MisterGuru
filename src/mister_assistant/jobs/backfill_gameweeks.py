@@ -54,11 +54,16 @@ def run_backfill(
             repo.insert_rows(
                 conn, "gameweeks", nz.gameweeks_from(current.data), ["id"], update=True
             )
+        loaded = fully_loaded_gameweeks(conn)
         finished = [
             g
             for g in nz.gameweeks_from(current.data)
-            # `ongoing` = jornada con partidos ya jugados y alguno pendiente (aplazado).
-            if g.status in ("finished", "ongoing") and (wanted is None or g.number in wanted)
+            # `ongoing` = jornada con partidos ya jugados y alguno pendiente (aplazado):
+            # se vuelve a mirar hasta que cierre. Una `finished` ya cargada se salta
+            # (salvo que se pida su número), para no pedir su página cada día.
+            if g.status in ("finished", "ongoing")
+            and (wanted is None or g.number in wanted)
+            and (g.status == "ongoing" or g.id not in loaded or wanted is not None)
         ]
         for gw in finished:
             if not budget_left():
@@ -103,6 +108,27 @@ def run_backfill(
         result.requests = client.requests
         result.close(conn, run_id)
     return result
+
+
+# Jugadores con desglose por partido para dar una jornada por completa (~30 de media).
+MIN_PLAYERS_PER_MATCH = 20
+
+
+def fully_loaded_gameweeks(conn: Conn) -> set[int]:
+    """Jornadas en las que cada partido jugado tiene ya sus desgloses.
+
+    Una carga cortada a mitad deja partidos con pocos o ningún jugador: esas
+    jornadas no cuentan como cargadas y se vuelven a pedir.
+    """
+    rows = conn.execute(
+        "select f.gameweek_id, bool_and(coalesce(n.players, 0) >= %s)"
+        " from fixtures f left join ("
+        "  select match_id, count(*) as players from player_gameweek group by match_id"
+        " ) n on n.match_id = f.id"
+        " where f.status = 'played' group by f.gameweek_id",
+        (MIN_PLAYERS_PER_MATCH,),
+    ).fetchall()
+    return {int(gid) for gid, complete in rows if complete}
 
 
 def _gameweek(

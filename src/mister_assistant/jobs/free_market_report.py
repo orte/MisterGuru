@@ -53,6 +53,10 @@ class FreePlayer:
     speculation_eur: int  # subida esperada − sobreprecio (puja probable) − reventa
     affordable: bool  # la puja probable cabe en la puja máxima
     needs_sales: int  # lo que habría que vender para no empezar la jornada en negativo
+    # El fichaje se ejecuta al cerrar el mercado: si es después del primer partido de
+    # la próxima jornada, no puede alinearse en ella y cuenta desde la siguiente.
+    misses_next: bool = False
+    counted_gameweeks: int = mk.HORIZON_GAMEWEEKS
 
     @property
     def for_points(self) -> bool:
@@ -78,6 +82,10 @@ def _eur(x: float) -> str:
     if x >= 1_000_000:
         return f"{sign}{x / 1_000_000:.2f} M€".replace(".", ",")
     return f"{sign}{x / 1000:.0f} k€"
+
+
+def _pts(x: float) -> str:
+    return f"{x:.1f}".replace(".", ",")
 
 
 def _when(dt: datetime | None) -> str:
@@ -110,6 +118,8 @@ def free_players(conn: Conn, snap: Snapshot, now: datetime) -> list[FreePlayer]:
                             bids[1], change)  # fmt: skip
         v = mk.value(squad, cand, balance=snap.balance)
         speculation = v.expected_value_change - v.premium
+        misses = ends is not None and ends > snap.first_kickoff
+        gameweeks = mk.HORIZON_GAMEWEEKS - 1 if misses else mk.HORIZON_GAMEWEEKS
         out.append(
             FreePlayer(
                 player_id=pid,
@@ -118,13 +128,15 @@ def free_players(conn: Conn, snap: Snapshot, now: datetime) -> list[FreePlayer]:
                 team=snap.names.get(pid, ("", None, None))[2],
                 value=int(mval),
                 ends_at=ends,
-                horizon_points=v.horizon_points,
+                horizon_points=round(v.marginal_points * gameweeks, 2),
                 replaces=v.replaces,
                 change_14d=change,
                 bids=bids,
                 speculation_eur=speculation,
                 affordable=bids[1] <= snap.max_bid,
                 needs_sales=max(0, bids[1] - snap.balance),
+                misses_next=misses,
+                counted_gameweeks=gameweeks,
             )
         )
     return out
@@ -149,17 +161,23 @@ def build_free_market_report(conn: Conn, *, now: datetime | None = None) -> Free
         f" · saldo {_eur(snap.balance)} · puja máx. {_eur(snap.max_bid)}",
     ]
 
+    n = snap.gameweek_number
+
     def line(p: FreePlayer) -> str:
         out = ", ".join(snap.names.get(r, (str(r), None, None))[0] for r in p.replaces)
+        first = n + 1 if p.misses_next else n
         cash = "✅ cabe en el saldo" if p.needs_sales == 0 else (
-            f"⚠️ faltan {_eur(p.needs_sales)}: vende antes de la jornada"
+            f"⚠️ faltan {_eur(p.needs_sales)}: vende antes de que empiece la J{first}"
         )  # fmt: skip
+        when = (
+            f" desde la J{first} (llega tras el primer partido de la J{n})" if p.misses_next else ""
+        )
         return (
             f"- {p.name} ({POSITION.get(p.position)}, {p.team}) · valor {_eur(p.value)}"
             f" · cierra {_when(p.ends_at)}\n"
             f"  puja {_eur(p.bids[0])} / {_eur(p.bids[1])} / {_eur(p.bids[2])} · {cash}"
-            + (f"\n  +{p.horizon_points:.1f} pts en 5 jornadas (sale {out})".replace(".", ",")
-               if p.for_points else "")
+            + (f"\n  +{_pts(p.horizon_points)} pts en {p.counted_gameweeks} jornadas{when}"
+               f" (sale {out})" if p.for_points else "")
             + (f"\n  revalorización esperada neta {_eur(p.speculation_eur)}"
                f" ({p.change_14d * 100:+.0f} % en 14 días)" if p.for_value else "")
         )  # fmt: skip
@@ -182,8 +200,8 @@ def build_free_market_report(conn: Conn, *, now: datetime | None = None) -> Free
         if best is not None and best.horizon_points > 0:
             lines += [
                 "",
-                f"El que más se acerca: {best.name}, +{best.horizon_points:.1f} pts en 5 jornadas"
-                f" (hace falta {MIN_HORIZON_POINTS:.1f})".replace(".", ","),
+                f"El que más se acerca: {best.name}, +{_pts(best.horizon_points)} pts en"
+                f" {best.counted_gameweeks} jornadas (hace falta {_pts(MIN_HORIZON_POINTS)})",
             ]
         else:
             lines += ["", "Ninguno entra en tu once ni se espera que suba lo suficiente."]
@@ -192,7 +210,7 @@ def build_free_market_report(conn: Conn, *, now: datetime | None = None) -> Free
         lines += ["", f"Interesarían pero no llegas ni endeudándote: {names}"]
     lines += [
         "",
-        "Recuerda: con saldo negativo al empezar la jornada se puntúa 0.",
+        "Recuerda: con saldo negativo al empezar una jornada se puntúa 0 en ella.",
         f"Predicciones del run {snap.run_id} (J{snap.gameweek_number}).",
     ]
     return FreeMarketReport(today, "\n".join(lines), points + value, len(players), snap.run_id)

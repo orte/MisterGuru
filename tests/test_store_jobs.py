@@ -240,3 +240,34 @@ def test_raw_payload_is_valid_json(db: Conn, settings: Settings) -> None:
     rows = db.execute("select route, body_json from raw_responses").fetchall()
     assert {r[0] for r in rows} >= {"gameweek", "player_gameweek"}
     assert all(json.dumps(r[1]) for r in rows)
+
+
+def test_backfill_skips_complete_gameweeks_but_not_partial(db: Conn, settings: Settings) -> None:
+    from mister_assistant.jobs import backfill_gameweeks as bg
+
+    fake = FakeMister()
+    with client_for(settings, fake) as client:
+        run_backfill(db, client, numbers=[7], max_requests=3, run_date=DAY)
+    # A medias: la J7 no cuenta como cargada.
+    assert 4048 not in bg.fully_loaded_gameweeks(db)
+    old = bg.MIN_PLAYERS_PER_MATCH
+    try:
+        bg.MIN_PLAYERS_PER_MATCH = 1  # en el fixture hay 1-3 jugadores por partido
+        with client_for(settings, fake) as client:
+            run_backfill(db, client, numbers=[7], run_date=DAY)
+        assert 4048 in bg.fully_loaded_gameweeks(db)
+        requested: list[str | None] = []
+
+        def spy(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/ajax/sw/gameweek":
+                requested.append(parse_qs(request.content.decode()).get("id", [None])[0])
+            return fake(request)
+
+        with MisterClient(
+            settings, transport=httpx.MockTransport(spy), sleep=lambda _: None
+        ) as client:
+            run_backfill(db, client, run_date=DAY)  # sin números
+        # La J7 (4048), ya completa, no se vuelve a pedir; las demás cerradas sí.
+        assert "4048" not in requested and len(requested) > 1
+    finally:
+        bg.MIN_PLAYERS_PER_MATCH = old

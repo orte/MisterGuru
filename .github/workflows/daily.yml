@@ -4,6 +4,11 @@ on:
   schedule:
     # 06:30 UTC = 08:30 en Madrid (horario de verano), tras el ciclo de mercado de las 05:00.
     - cron: "30 6 * * *"
+    # Respaldo (10:30 y 14:30 en Madrid): GitHub a veces retrasa o descarta un cron.
+    # Todo es idempotente: si la de las 06:30 terminó bien, el snapshot y los
+    # informes se saltan y las cuotas no se repiten si son de hace menos de 3 h.
+    - cron: "30 8 * * *"
+    - cron: "30 12 * * *"
   workflow_dispatch:
     inputs:
       force:

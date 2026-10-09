@@ -68,13 +68,15 @@ def _pct(x: float) -> str:
     return f"{x * 100:+.1f} %".replace(".", ",")
 
 
-def _next_gameweek_id(conn: Conn) -> int | None:
+def _next_gameweek(conn: Conn) -> tuple[int, int, datetime] | None:
+    """(id, número, primer partido) de la próxima jornada sin empezar."""
     row = conn.execute(
-        "select g.id from gameweeks g join fixtures f on f.gameweek_id = g.id"
-        " where g.status = 'unstarted' group by g.id"
-        " having min(f.kickoff_at) > now() order by min(f.kickoff_at) limit 1"
+        "select g.id, g.number, min(f.kickoff_at) from gameweeks g"
+        " join fixtures f on f.gameweek_id = g.id where g.status = 'unstarted'"
+        " group by g.id, g.number having min(f.kickoff_at) > now()"
+        " order by min(f.kickoff_at) limit 1"
     ).fetchone()
-    return int(row[0]) if row else None
+    return (int(row[0]), int(row[1]), row[2]) if row else None
 
 
 def _bid_ratios(conn: Conn) -> list[float]:
@@ -104,7 +106,8 @@ def build_market_report(conn: Conn, *, now: datetime | None = None) -> MarketRep
     me_id, balance, max_bid, snap_date = int(me[0]), int(me[1] or 0), int(me[2] or 0), me[3]
 
     # Puntos esperados de la próxima jornada para todos los jugadores.
-    gw_id = _next_gameweek_id(conn)
+    nxt = _next_gameweek(conn)
+    gw_id, gw_number, kickoff = nxt if nxt else (None, 0, None)
     exp: dict[int, tuple[float, float, int]] = {}
     if gw_id is not None:
         priors = load_priors(conn)
@@ -142,11 +145,15 @@ def build_market_report(conn: Conn, *, now: datetime | None = None) -> MarketRep
     # -- fichajes del mercado ------------------------------------------------
     levels = mk.bid_levels(_bid_ratios(conn))
     market = conn.execute(
-        "select player_id, market_value, sale_price, seller_manager_id from market_snapshot"
+        "select player_id, market_value, sale_price, seller_manager_id, sale_ends_at"
+        " from market_snapshot"
         " where snapshot_date = (select max(snapshot_date) from market_snapshot)"
     ).fetchall()
+    # Un fichaje del mercado se ejecuta al cerrar su plazo: si es después del primer
+    # partido de la próxima jornada, no puede jugarla y cuenta desde la siguiente.
+    late: dict[int, bool] = {}
     valuations = []
-    for pid, mval, price, seller in market:
+    for pid, mval, price, seller, ends in market:
         pid = int(pid)
         o = option(pid)
         if o is None or pid in my_ids or not mval:
@@ -156,27 +163,34 @@ def build_market_report(conn: Conn, *, now: datetime | None = None) -> MarketRep
             pid, o.name, o.position, o.exp_points, o.p_play, int(mval),
             int(max(price or 0, mval)), vf.change_14d if vf else 0.0, seller,
         )  # fmt: skip
-        valuations.append(mk.value(squad, cand, balance=balance))
+        late[pid] = bool(ends and kickoff and ends > kickoff)
+        horizon = mk.HORIZON_GAMEWEEKS - 1 if late[pid] else mk.HORIZON_GAMEWEEKS
+        valuations.append(mk.value(squad, cand, balance=balance, horizon=horizon))
     good = sorted((v for v in valuations if v.score > 0), key=lambda v: -v.score)[:TOP_MARKET]
-    lines += ["", "🛒 Fichajes (puntos extra en 5 jornadas · valor a 14 días · pujas)"]
+    lines += ["", "🛒 Fichajes (puntos extra · valor a 14 días · pujas)"]
     if not good:
         lines.append("Nada en el mercado mejora tu once lo suficiente.")
     for v in good:
         c = v.candidate
         tight, likely, safe = levels.amounts(c.value) if c.seller_id is None else (c.price,) * 3
         out = ", ".join(names.get(p, (str(p), None))[0] for p in v.replaces) or "banquillo"
+        is_late = late.get(c.player_id, False)
+        first = gw_number + 1 if is_late else gw_number
+        gws = mk.HORIZON_GAMEWEEKS - 1 if is_late else mk.HORIZON_GAMEWEEKS
         cash = (
             ""
             if v.affordable_now
-            else f" · ⚠️ faltan {_eur(v.needs_sales)} (vender antes de la jornada)"
+            else f" · ⚠️ faltan {_eur(v.needs_sales)} (vender antes de que empiece la J{first})"
         )
+        span = f"en {gws} jornadas" + (f" desde la J{first}" if is_late else "")
         bid = (
             f"puja {_eur(tight)} / {_eur(likely)} / {_eur(safe)}"
             if c.seller_id is None
             else f"lo vende un rival por {_eur(c.price)}"
         )
         msg = (
-            f"- {c.name}: +{_pts(v.horizon_points)} pts (sale {out}) · {_pct(c.change_14d)}"
+            f"- {c.name}: +{_pts(v.horizon_points)} pts {span} (sale {out})"
+            f" · {_pct(c.change_14d)}"
             f" · {bid}{cash}"
         )
         lines.append(msg)
@@ -187,7 +201,8 @@ def build_market_report(conn: Conn, *, now: datetime | None = None) -> MarketRep
                  "valor": c.value, "precio": c.price, "variacion_14d": c.change_14d,
                  "sobreprecio": v.premium, "pujas": [tight, likely, safe],
                  "muestras_pujas": levels.samples, "sustituye": v.replaces,
-                 "cabe_con_saldo": v.affordable_now},
+                 "cabe_con_saldo": v.affordable_now, "jornadas_contadas": gws,
+                 "llega_tras_inicio": is_late},
                 v.score,
             )
         )  # fmt: skip
@@ -228,14 +243,15 @@ def build_market_report(conn: Conn, *, now: datetime | None = None) -> MarketRep
         lines.append("Ninguna cláusula rival compensa ahora.")
     for val, owner_name in offers[:TOP_CLAUSES]:
         c = val.candidate
+        # El clausulazo es inmediato: juega ya la próxima jornada.
         cash = (
             "con saldo"
             if val.affordable_now
-            else f"faltan {_eur(val.needs_sales)}: vender antes de la jornada"
+            else f"faltan {_eur(val.needs_sales)}: vender antes de que empiece la J{gw_number}"
         )
         msg = (
             f"- {c.name} ({owner_name}): cláusula {_eur(c.price)} (valor {_eur(c.value)})"
-            f" · +{_pts(val.horizon_points)} pts · {cash}"
+            f" · +{_pts(val.horizon_points)} pts en {mk.HORIZON_GAMEWEEKS} jornadas · {cash}"
         )
         lines.append(msg)
         recs.append(

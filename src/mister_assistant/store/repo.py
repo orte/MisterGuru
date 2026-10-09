@@ -190,6 +190,27 @@ def upsert_teams(conn: Conn, teams: dict[int, str]) -> None:
         )
 
 
+# Informes diarios (no ligados a una jornada): report_log con gameweek_id = 0.
+DAILY_REPORT_GAMEWEEK = 0
+
+
+def daily_report_sent(conn: Conn, slot: str) -> bool:
+    row = conn.execute(
+        "select 1 from report_log where gameweek_id = %s and slot = %s and delivered",
+        (DAILY_REPORT_GAMEWEEK, slot),
+    ).fetchone()
+    return row is not None
+
+
+def log_daily_report(conn: Conn, slot: str, delivered: bool) -> None:
+    conn.execute(
+        "insert into report_log (gameweek_id, slot, delivered) values (%s, %s, %s)"
+        " on conflict (gameweek_id, slot) do update set delivered = excluded.delivered,"
+        " sent_at = now()",
+        (DAILY_REPORT_GAMEWEEK, slot, delivered),
+    )
+
+
 def start_job(conn: Conn, job: str, run_date: date) -> int:
     row = conn.execute(
         "insert into job_runs (job, run_date) values (%s, %s) returning id", (job, run_date)

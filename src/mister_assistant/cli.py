@@ -224,8 +224,15 @@ def _capture_odds(settings: Settings) -> int:
         print("ODDS_API_KEY no configurada: no se piden cuotas")
         return EXIT_OK
     dsn = settings.database_dsn()
-    with connect(dsn) as conn, OddsClient(settings.odds_api_key.get_secret_value()) as client:
-        result = run_capture_odds(conn, client)
+    with connect(dsn) as conn:
+        recent = conn.execute(
+            "select 1 from odds where captured_at > now() - interval '3 hours' limit 1"
+        ).fetchone()
+        if recent is not None:
+            print("Hay cuotas de hace menos de 3 h: no se gastan créditos")
+            return EXIT_OK
+        with OddsClient(settings.odds_api_key.get_secret_value()) as client:
+            result = run_capture_odds(conn, client)
     return _report_job(settings, result)
 
 
@@ -418,40 +425,47 @@ def _agent_eval(settings: Settings) -> int:
 
 def _free_market_report(settings: Settings, *, dry_run: bool, force: bool) -> int:
     from mister_assistant.jobs import free_market_report as fmr
+    from mister_assistant.store import repo
     from mister_assistant.store.db import connect
 
     with connect(settings.database_dsn()) as conn:
         report = fmr.build_free_market_report(conn)
+        slot = f"mercado-libre-{report.report_date}"
         print(report.message)
         if dry_run:
             return EXIT_OK
-        if fmr.already_sent(conn, report.report_date) and not force:
+        if repo.daily_report_sent(conn, slot) and not force:
             print("Ya se envió el de hoy (usa --force para repetir)")
             return EXIT_OK
         with conn.transaction():
             fmr.save(conn, report)
-        return EXIT_OK if _send(settings, report.message) else EXIT_FAILED
+        delivered = _send(settings, report.message)
+        with conn.transaction():
+            repo.log_daily_report(conn, slot, delivered)
+        return EXIT_OK if delivered else EXIT_FAILED
 
 
 def _market_report(settings: Settings, *, dry_run: bool, force: bool) -> int:
     from mister_assistant.jobs.market_report import build_market_report, save_recommendations
+    from mister_assistant.store import repo
     from mister_assistant.store.db import connect
 
     with connect(settings.database_dsn()) as conn:
         report = build_market_report(conn)
-        sent = conn.execute(
-            "select 1 from recommendations where report_date = %s limit 1", (report.report_date,)
-        ).fetchone()
+        slot = f"mercado-{report.report_date}"
         print(report.message)
         if dry_run:
             return EXIT_OK
-        if sent and not force:
+        if repo.daily_report_sent(conn, slot) and not force:
             print("Ya se envió el informe de mercado de hoy (usa --force para repetir)")
             return EXIT_OK
         with conn.transaction():
             n = save_recommendations(conn, report)
         print(f"{n} recomendaciones guardadas")
-        return EXIT_OK if _send(settings, report.message) else EXIT_FAILED
+        delivered = _send(settings, report.message)
+        with conn.transaction():
+            repo.log_daily_report(conn, slot, delivered)
+        return EXIT_OK if delivered else EXIT_FAILED
 
 
 def _gameweek_report(settings: Settings, *, auto: bool, dry_run: bool, refresh: bool) -> int:

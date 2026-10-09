@@ -85,7 +85,8 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "valorar_fichaje",
-        "description": "Valora fichar a un jugador: puntos extra en el once en 5 jornadas, a"
+        "description": "Valora fichar a un jugador: puntos extra en el once en las próximas"
+        " jornadas (5, o 4 si la compra se cierra después del primer partido), a"
         " quién sustituye, variación de valor esperada, sobreprecio, pujas recomendadas"
         " (ajustada, probable, segura) y si cabe en el saldo. Si está en otra plantilla, se"
         " valora por su cláusula. `precio` opcional para valorar un precio concreto.",
@@ -332,6 +333,16 @@ class Toolbox:
             "diferencia": round(total - best.expected_points, 2),
         }
 
+    def _horizon(self, player_id: int) -> tuple[int, bool]:
+        """Jornadas que cuenta un fichaje: una menos si llega tras el primer partido."""
+        row = self.conn.execute(
+            "select sale_ends_at from market_snapshot where player_id = %s"
+            " and snapshot_date = (select max(snapshot_date) from market_snapshot)",
+            (player_id,),
+        ).fetchone()
+        late = bool(row and row[0] and row[0] > self.snap.first_kickoff)
+        return (mk.HORIZON_GAMEWEEKS - 1 if late else mk.HORIZON_GAMEWEEKS), late
+
     def _candidate(self, player_id: int, price: int | None) -> tuple[mk.Candidate, str]:
         s = self.snap
         opt = s.option(player_id)
@@ -370,7 +381,11 @@ class Toolbox:
         if player_id in s.squad:
             raise ToolError("ya está en tu plantilla: usa analizar_venta")
         cand, how = self._candidate(player_id, precio)
-        v = mk.value(s.squad_options(), cand, balance=s.balance)
+        # Una cláusula es inmediata; una compra en el mercado llega al cerrar su plazo.
+        gws, late = self._horizon(player_id) if how == "en el mercado" else (
+            mk.HORIZON_GAMEWEEKS, False
+        )  # fmt: skip
+        v = mk.value(s.squad_options(), cand, balance=s.balance, horizon=gws)
         from mister_assistant.jobs.market_report import _bid_ratios
 
         levels = mk.bid_levels(_bid_ratios(self.conn))
@@ -382,7 +397,9 @@ class Toolbox:
             "precio_segun": how,
             "valor": cand.value,
             "puntos_extra_jornada": v.marginal_points,
-            "puntos_extra_5_jornadas": v.horizon_points,
+            "jornadas_contadas": gws,
+            "llega_tras_el_primer_partido": late,
+            "puntos_extra_en_jornadas_contadas": v.horizon_points,
             "sustituye_a": [_name(s, p) for p in v.replaces],
             "variacion_valor_14d_eur": v.expected_value_change,
             "sobreprecio_eur": v.premium,
@@ -471,10 +488,12 @@ class Toolbox:
                 cand, _ = self._candidate(int(pid), None)
             except ToolError:
                 continue
-            v = mk.value(s.squad_options(), cand, balance=s.balance)
+            gws, late = self._horizon(int(pid))
+            v = mk.value(s.squad_options(), cand, balance=s.balance, horizon=gws)
             out.append(
                 {**_name(s, int(pid)), "precio": cand.price, "valor": cand.value,
-                 "puntos_extra_5_jornadas": v.horizon_points, "puntuacion": v.score,
+                 "jornadas_contadas": gws, "llega_tras_el_primer_partido": late,
+                 "puntos_extra_en_jornadas_contadas": v.horizon_points, "puntuacion": v.score,
                  "variacion_14d": round(cand.change_14d, 4), "cabe_con_saldo": v.affordable_now}
             )  # fmt: skip
         out.sort(key=lambda r: -r["puntuacion"])

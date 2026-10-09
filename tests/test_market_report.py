@@ -160,3 +160,14 @@ def test_backfill_values_universe_skips_fetched_players(db: Conn) -> None:
             (TODAY,),
         )
     assert 600 not in set(universe(db))
+
+
+def test_market_purchase_after_kickoff_counts_from_next_gameweek(db: Conn) -> None:
+    seed(db)
+    with db.transaction():
+        db.execute("update market_snapshot set sale_ends_at = %s", (KICKOFF + timedelta(hours=6),))
+    report = build_market_report(db, now=NOW)
+    fichaje = next(r for r in report.recommendations if r.kind == "fichaje")
+    assert fichaje.numbers["llega_tras_inicio"] is True
+    assert fichaje.numbers["jornadas_contadas"] == 4
+    assert "en 4 jornadas desde la J9" in fichaje.message
