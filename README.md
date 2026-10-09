@@ -5,7 +5,7 @@ completo está en [PLAN.md](PLAN.md).
 
 ## Estado
 
-**Fase 5 — evaluación y modelo entrenado.**
+**Fase 6 — agente conversacional.**
 
 - Fase 0: cliente de Mister de solo lectura con lista blanca de rutas
   (`sources/mister.py`), [catálogo de endpoints](docs/mister-endpoints.md),
@@ -29,6 +29,9 @@ completo está en [PLAN.md](PLAN.md).
 - Fase 5 ([evaluación](docs/evaluation.md)): backtest «como si» de v0 y v1
   (LightGBM), evaluación semanal de lo predicho y recomendado, y auditoría del
   mercado (`weekly.yml`).
+- Fase 6 ([agente](docs/agent.md)): Claude con herramientas de solo lectura,
+  por Telegram (`bot`) o terminal (`ask`); triaje de noticias y cifras trazables
+  a `predictions`.
 
 ## Puesta en marcha
 
@@ -59,6 +62,9 @@ Códigos de salida: `0` OK, `1` error, `2` faltan variables, `3` sesión caducad
 | `derive-match-stats` | Rellena `match_stats` desde lo crudo (sin red) |
 | `backfill-values [--max-requests N]` | Serie de valor de un año e historial de traspasos por jugador (una vez; ~550 peticiones) |
 | `backfill-feed [--max-pages N]` | Feed de la liga hasta donde lo sirve Mister (~3 semanas) |
+| `ask "pregunta"` | Pregunta al agente desde la terminal (necesita `ANTHROPIC_API_KEY`) |
+| `bot` | Agente por Telegram: proceso que se queda escuchando (`scripts/bot.sh --detach` / `--stop`) |
+| `agent-eval` | Casos de prueba del agente con el modelo real (cuesta dinero de la API) |
 | `backtest [--save]` | Backtest de v0 frente a v1 y once recomendado frente al puesto (sin red) |
 | `weekly-eval [--dry-run]` | Evaluación semanal de predicciones y recomendaciones, por Telegram |
 | `market-report [--dry-run] [--force]` | Informe de mercado y cláusulas (sin peticiones) |

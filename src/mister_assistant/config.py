@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Cadena de conexión de Postgres (Supabase → Connect → Session pooler).
     database_url: SecretStr | None = None
 
+    # API de Anthropic para el agente (Fase 6).
+    anthropic_api_key: SecretStr | None = None
+
     # The Odds API (plan gratuito: 500 créditos/mes). Sin clave no se piden cuotas.
     odds_api_key: SecretStr | None = None
 
@@ -48,7 +51,8 @@ class Settings(BaseSettings):
 
     @field_validator(
         "mister_token", "mister_x_auth", "mister_phpsessid", "mister_refresh_token",
-        "database_url", "odds_api_key", "telegram_bot_token", mode="before",
+        "database_url", "odds_api_key", "telegram_bot_token", "anthropic_api_key",
+        mode="before",
     )  # fmt: skip
     @classmethod
     def _strip(cls, value: object) -> object:
@@ -100,6 +104,7 @@ class Settings(BaseSettings):
             "database_url",
             "telegram_bot_token",
             "odds_api_key",
+            "anthropic_api_key",
         ):
             secret = getattr(self, name)
             if _has_value(secret):

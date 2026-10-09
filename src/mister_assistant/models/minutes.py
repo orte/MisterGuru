@@ -43,11 +43,17 @@ def history_start_rate(f: PlayerFeatures) -> float:
 def forecast_minutes(f: PlayerFeatures, priors: LeaguePriors) -> MinutesForecast:
     if f.fixture is None:
         return MinutesForecast(0.0, 0.0, 0.0, 0.0, "sin_partido")
-    if f.ff_prob is not None and f.ff_prob == 0 and f.ff_injury not in (None, -1):
+    if f.override_status == "baja":
+        return MinutesForecast(0.0, 0.0, 0.0, 0.0, "noticia: baja")
+    injured_ff = f.ff_prob is not None and f.ff_prob == 0 and f.ff_injury not in (None, -1)
+    if injured_ff and f.override_status != "disponible":
         return MinutesForecast(0.0, 0.0, 0.0, 0.0, "baja")
 
     hist = history_start_rate(f)
-    if f.ff_prob is not None:
+    if injured_ff:
+        # La noticia lo da por disponible aunque Fútbol Fantasy lo tenga de baja.
+        p_start, source = hist, "noticia: disponible"
+    elif f.ff_prob is not None:
         p_start, source = FF_WEIGHT * f.ff_prob + (1 - FF_WEIGHT) * hist, "futbolfantasy"
     elif f.mister_xi is not None:
         ext = MISTER_IN_XI if f.mister_xi else MISTER_OUT_XI
@@ -61,6 +67,16 @@ def forecast_minutes(f: PlayerFeatures, priors: LeaguePriors) -> MinutesForecast
     prior = SUB_PRIOR[f.position]
     p_sub_given = (came_on + prior * SUB_PRIOR_WEIGHT) / (len(non_starts) + SUB_PRIOR_WEIGHT)
     p_sub = (1 - p_start) * p_sub_given
+
+    if f.override_status == "duda":
+        # Duda por noticia: P(jugar) limitada a lo que diga la noticia, o la mitad.
+        cap = f.override_p_play if f.override_p_play is not None else 0.5 * (p_start + p_sub)
+        total = p_start + p_sub
+        if total > cap > 0:
+            p_start, p_sub = p_start * cap / total, p_sub * cap / total
+        elif cap <= 0:
+            p_start = p_sub = 0.0
+        source = "noticia: duda"
 
     start_mins = [a.minutes for a in f.history if a.started]
     prior_min = priors.start_minutes[f.position]

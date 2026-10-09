@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 from collections.abc import Sequence
+from typing import Any
 
 from mister_assistant.config import ConfigError, Settings, load_settings
 from mister_assistant.delivery.telegram import TelegramError, send_message
@@ -56,6 +57,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _backtest(settings, save=args.save)
             case "weekly-eval":
                 return _weekly_eval(settings, dry_run=args.dry_run)
+            case "ask":
+                return _ask(settings, " ".join(args.question))
+            case "bot":
+                return _bot(settings)
+            case "agent-eval":
+                return _agent_eval(settings)
             case "market-report":
                 return _market_report(settings, dry_run=args.dry_run, force=args.force)
             case "gameweek-report":
@@ -98,6 +105,10 @@ def _parser() -> argparse.ArgumentParser:
     btp.add_argument("--save", action="store_true", help="Guarda el resultado en evaluations")
     wk = sub.add_parser("weekly-eval", help="Evaluación semanal de predicciones y mercado")
     wk.add_argument("--dry-run", action="store_true", help="Imprime sin guardar ni enviar")
+    askp = sub.add_parser("ask", help="Pregunta al agente desde la terminal")
+    askp.add_argument("question", nargs="+")
+    sub.add_parser("bot", help="Agente por Telegram (proceso que se queda escuchando)")
+    sub.add_parser("agent-eval", help="Casos de prueba del agente con el modelo real (cuesta)")
     mrep = sub.add_parser("market-report", help="Informe matinal de mercado y cláusulas")
     mrep.add_argument("--dry-run", action="store_true", help="Imprime sin enviar ni guardar")
     mrep.add_argument("--force", action="store_true", help="Repite aunque ya se enviara hoy")
@@ -334,6 +345,70 @@ def _weekly_eval(settings: Settings, *, dry_run: bool) -> int:
             save_weekly(conn, report)
     print(report.message)
     return EXIT_OK if _send(settings, report.message) else EXIT_FAILED
+
+
+def _anthropic_client(settings: Settings) -> Any:
+    """Cliente de Anthropic con la clave de .env (el SDK solo mira el entorno)."""
+    import os
+
+    import anthropic
+
+    key = settings.anthropic_api_key
+    if key is not None and key.get_secret_value():
+        return anthropic.Anthropic(api_key=key.get_secret_value())
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+        return anthropic.Anthropic()
+    raise ConfigError(
+        "Falta ANTHROPIC_API_KEY (console.anthropic.com → API Keys) en .env o el entorno"
+    )
+
+
+def _ask(settings: Settings, question: str) -> int:
+    from mister_assistant.agent.runner import Agent
+    from mister_assistant.store.db import connect
+
+    client = _anthropic_client(settings)
+    with connect(settings.database_dsn()) as conn:
+        agent = Agent(conn, client)
+        answer = agent.ask(question)
+        agent.log(question, answer, "terminal")
+    print(answer.text)
+    print(
+        f"\n[run {answer.run_id} · herramientas: {', '.join(c['tool'] for c in answer.tool_calls)}"
+        f" · tokens entrada {answer.usage.get('input')} (caché {answer.usage.get('cache_read')})"
+        f" salida {answer.usage.get('output')}]"
+    )
+    if answer.untraceable:
+        print(f"⚠️ cifras sin respaldo en herramientas: {answer.untraceable}")
+    return EXIT_OK
+
+
+def _bot(settings: Settings) -> int:
+    from mister_assistant.agent.runner import Agent
+    from mister_assistant.delivery.telegram_bot import run_bot
+    from mister_assistant.store.db import connect
+
+    client = _anthropic_client(settings)
+    dsn = settings.database_dsn()
+
+    def agent_factory() -> Agent:
+        # Conexión nueva por mensaje: el proceso vive días y el pooler corta las ociosas.
+        return Agent(connect(dsn), client, owns_conn=True)
+
+    run_bot(settings, agent_factory)
+    return EXIT_OK
+
+
+def _agent_eval(settings: Settings) -> int:
+    from mister_assistant.agent.evals import format_results, run_cases
+    from mister_assistant.agent.runner import Agent
+    from mister_assistant.store.db import connect
+
+    client = _anthropic_client(settings)
+    dsn = settings.database_dsn()
+    results = run_cases(lambda: Agent(connect(dsn), client, owns_conn=True))
+    print(format_results(results))
+    return EXIT_OK if all(r.passed for r in results) else EXIT_FAILED
 
 
 def _market_report(settings: Settings, *, dry_run: bool, force: bool) -> int:

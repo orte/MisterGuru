@@ -71,6 +71,9 @@ class PlayerFeatures:
     ff_role: str | None = None
     ff_injury: int | None = None
     mister_xi: bool | None = None
+    # Ajuste manual por noticia (availability_overrides): baja / duda / disponible
+    override_status: str | None = None
+    override_p_play: float | None = None
 
 
 @dataclass(frozen=True)
@@ -318,6 +321,17 @@ def load_player_features(
             )
         }
 
+    overrides: dict[int, tuple[str, float | None]] = {}
+    if not backtest:
+        overrides = {
+            int(r[0]): (str(r[1]), float(r[2]) if r[2] is not None else None)
+            for r in conn.execute(
+                "select distinct on (player_id) player_id, status, p_play"
+                " from availability_overrides where active and valid_until >= current_date"
+                " order by player_id, source_date desc, created_at desc"
+            )
+        }
+
     out: list[PlayerFeatures] = []
     for pid, name, pos, team in conn.execute(
         "select mister_player_id, name, position, team_id from players"
@@ -354,6 +368,8 @@ def load_player_features(
                 ff_role=f[1] if f else None,
                 ff_injury=f[2] if f else None,
                 mister_xi=(int(pid) in mister_xi) if mister_xi is not None else None,
+                override_status=overrides.get(int(pid), (None, None))[0],
+                override_p_play=overrides.get(int(pid), (None, None))[1],
             )
         )
     return out

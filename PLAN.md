@@ -362,13 +362,15 @@ once recomendado bate al alineado.
 
 ### Fase 6 — Agente conversacional
 
-- [ ] Herramientas de solo lectura para Claude: consultar jugador, comparar dos
+- [x] Herramientas de solo lectura para Claude: consultar jugador, comparar dos
       jugadores, simular once, valorar un fichaje, estado de rivales.
-- [ ] Triaje de noticias: resumir ruedas de prensa y partes médicos y convertirlos
+- [x] Triaje de noticias: resumir ruedas de prensa y partes médicos y convertirlos
       en ajustes estructurados de disponibilidad, con fuente y fecha.
-- [ ] Conversación por Telegram restringida al chat de Jon.
-- [ ] Casos de prueba del agente: preguntas tipo con respuesta esperada; el agente
+- [x] Conversación por Telegram restringida al chat de Jon.
+- [x] Casos de prueba del agente: preguntas tipo con respuesta esperada; el agente
       debe citar siempre cifras salidas de las herramientas.
+      *Tests con cliente simulado en `tests/test_agent.py`; casos con el modelo
+      real en `mister-assistant agent-eval`: 5/5 (2026-10-09).*
 
 **Aceptación:** responde a «¿vendo a X?», «¿pujo por Y y cuánto?» y «¿a quién
 siento esta jornada?» con cifras trazables a `predictions`.
